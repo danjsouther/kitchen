@@ -229,6 +229,24 @@ export interface PlannedMeal {
   cookSessions: Array<{ id: number; cookedOn: string; reversedOn: string | null }>;
 }
 
+/**
+ * What `POST /planner` accepts, mirroring CreatePlannedMealDto.
+ *
+ * Either `recipeId` or `note` must be present — the calendar holds "leftovers"
+ * and "dinner out" as well as recipes, but an entry that names neither is an
+ * empty slot rather than a plan, and the API says so.
+ *
+ * Omitting `servings` lets the recipe's own count stand, which is what the
+ * common case — cooking it as written — actually wants.
+ */
+export interface PlannedMealWrite {
+  date: string;
+  slot: PlannedMeal['slot'];
+  recipeId?: number;
+  note?: string;
+  servings?: number;
+}
+
 export interface LineStatus {
   ingredientId: number;
   ingredientName: string | null;

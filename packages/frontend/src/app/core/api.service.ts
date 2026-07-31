@@ -173,7 +173,7 @@ export class ApiService {
     return this.get<M.PlannedMeal[]>('/planner', { from, to });
   }
 
-  addPlannedMeal(body: unknown) {
+  addPlannedMeal(body: M.PlannedMealWrite) {
     return this.post<M.PlannedMeal>('/planner', body);
   }
 

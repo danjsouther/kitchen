@@ -16,6 +16,7 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { PlanMealFormComponent } from "./plan-meal-form.component";
 import type { PlannedMeal } from "../core/models";
 
 const SLOTS = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"] as const;
@@ -26,6 +27,7 @@ type Slot = (typeof SLOTS)[number];
   imports: [
     DatePipe,
     RouterLink,
+    PlanMealFormComponent,
     MatButtonModule,
     MatCardModule,
     MatIconModule,
@@ -53,10 +55,23 @@ type Slot = (typeof SLOTS)[number];
           </button>
           <button mat-button (click)="goToday()">Today</button>
         </div>
+        <button mat-flat-button (click)="startAdd()">
+          <mat-icon>add</mat-icon>
+          Add a meal
+        </button>
       </div>
 
       @if (loading()) {
         <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (adding(); as cell) {
+        <app-plan-meal-form
+          [date]="cell.date"
+          [slot]="cell.slot"
+          (saved)="onSaved()"
+          (cancelled)="adding.set(null)"
+        />
       }
 
       <div class="scroll-x">
@@ -72,7 +87,7 @@ type Slot = (typeof SLOTS)[number];
           @for (slot of slots; track slot) {
             <div class="slot-head">{{ title(slot) }}</div>
             @for (day of days(); track day.toISOString()) {
-              <div class="cell">
+              <div class="cell" [class.targeted]="isTarget(day, slot)">
                 @for (meal of mealsFor(day, slot); track meal.id) {
                   <div class="meal" [class.cooked]="meal.status === 'COOKED'">
                     @if (meal.recipe) {
@@ -116,6 +131,19 @@ type Slot = (typeof SLOTS)[number];
                     </div>
                   </div>
                 }
+
+                <!--
+                  Dimmed rather than hidden-until-hover: a control that only
+                  exists on hover is a control a touch screen cannot find.
+                -->
+                <button
+                  mat-icon-button
+                  class="tiny-btn add-btn"
+                  (click)="startAdd(day, slot)"
+                  [attr.aria-label]="addLabel(day, slot)"
+                >
+                  <mat-icon class="tiny">add</mat-icon>
+                </button>
               </div>
             }
           }
@@ -215,6 +243,18 @@ type Slot = (typeof SLOTS)[number];
       height: 1.5rem;
       padding: 0;
     }
+    .cell.targeted {
+      background: var(--mat-sys-secondary-container);
+    }
+    .add-btn {
+      align-self: flex-start;
+      opacity: 0.35;
+      margin-top: auto;
+    }
+    .cell:hover .add-btn,
+    .add-btn:focus-visible {
+      opacity: 1;
+    }
     .small {
       font-size: 0.85rem;
       margin-top: 1rem;
@@ -229,6 +269,9 @@ export class PlanComponent {
   readonly meals = signal<PlannedMeal[]>([]);
   readonly loading = signal(true);
   readonly weekStart = signal(startOfWeek(new Date()));
+
+  /** The cell the add form is filling, or null when it is closed. */
+  readonly adding = signal<{ date: string; slot: Slot } | null>(null);
 
   readonly days = computed(() => {
     const start = this.weekStart();
@@ -255,6 +298,33 @@ export class PlanComponent {
 
   title(slot: Slot): string {
     return slot.charAt(0) + slot.slice(1).toLowerCase();
+  }
+
+  /**
+   * Opens the add form on a cell.
+   *
+   * With no cell — the header button — it aims at tonight's dinner if this week
+   * contains today, and otherwise at the first day shown, so the form never
+   * opens on a date that is not on screen.
+   */
+  startAdd(day?: Date, slot: Slot = "DINNER"): void {
+    const days = this.days();
+    const fallback = days.find((d) => this.isToday(d)) ?? days[0];
+    this.adding.set({ date: isoDate(day ?? fallback), slot });
+  }
+
+  isTarget(day: Date, slot: Slot): boolean {
+    const cell = this.adding();
+    return cell !== null && cell.date === isoDate(day) && cell.slot === slot;
+  }
+
+  addLabel(day: Date, slot: Slot): string {
+    return `Add a meal to ${this.title(slot).toLowerCase()} on ${isoDate(day)}`;
+  }
+
+  onSaved(): void {
+    this.adding.set(null);
+    this.load();
   }
 
   mealsFor(day: Date, slot: Slot): PlannedMeal[] {
