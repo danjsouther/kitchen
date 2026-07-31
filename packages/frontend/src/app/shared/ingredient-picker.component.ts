@@ -180,6 +180,11 @@ export class IngredientPickerComponent {
   }
 
   onType(value: string): void {
+    // Selecting an option sets `text` in onPick, then Material writes the same
+    // string into the input and fires (input). Emitting textChanged for that
+    // echo would make the parent drop the catalog link we just established.
+    if (value === this.text()) return;
+
     this.text.set(value);
     this.textChanged.emit(value);
     const query = value.trim();
