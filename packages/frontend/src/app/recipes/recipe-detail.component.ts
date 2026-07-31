@@ -5,6 +5,7 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
+import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatChipsModule } from "@angular/material/chips";
@@ -14,12 +15,13 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
-import { amountWithUnit } from "../shared/format";
+import { amountWithUnit, trimQuantity } from "../shared/format";
 import type { Recipe, RecipeIngredient } from "../core/models";
 
 @Component({
   selector: "app-recipe-detail",
   imports: [
+    RouterLink,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
@@ -41,6 +43,10 @@ import type { Recipe, RecipeIngredient } from "../core/models";
               <p class="muted">{{ r.description }}</p>
             }
           </div>
+          <a mat-stroked-button [routerLink]="['/recipes', r.id, 'edit']">
+            <mat-icon>edit</mat-icon>
+            Edit
+          </a>
         </div>
 
         <div class="chip-row meta muted">
@@ -102,7 +108,15 @@ import type { Recipe, RecipeIngredient } from "../core/models";
               <ul class="ingredients">
                 @for (line of group.lines; track line.id) {
                   <li [class.optional]="line.optional">
-                    <span class="amount">{{ display(line) }}</span>
+                    <!--
+                      Not always shown. On an unmatched line the text beside it
+                      is the whole raw line, amount included, so printing one
+                      here as well gives "2 2 cups dried beans". showsAmount()
+                      is what decides; see it for the scaling case.
+                    -->
+                    @if (showsAmount(line)) {
+                      <span class="amount">{{ display(line) }}</span>
+                    }
                     <!--
                       prettier-ignore, and do not reflow this by hand either: a
                       line break between the name and the comma becomes a space
@@ -116,7 +130,7 @@ import type { Recipe, RecipeIngredient } from "../core/models";
                     -->
                     <!-- prettier-ignore -->
                     <span
-                      >{{ line.ingredient?.name ?? line.rawText
+                      >{{ lineName(line)
                       }}@if (line.ingredient && line.preparation) {<span class="muted">, {{ line.preparation }}</span>}@if (line.optional) {<span class="muted"> (optional)</span>}
                       @if (!line.ingredient) {
                         <mat-icon
@@ -273,6 +287,81 @@ export class RecipeDetailComponent {
     if (line.quantity === null) return "";
 
     return amountWithUnit(line.quantity, line.unit);
+  }
+
+  /**
+   * The text that follows the amount.
+   *
+   * A matched line has a catalog name to use. An unmatched one has only
+   * `rawText`, which is the *whole* line — amount included — so the amount is
+   * taken back off where it can be identified, leaving "dried kidney beans"
+   * rather than "2 cups dried kidney beans" beside a separate "2 cups".
+   */
+  lineName(line: RecipeIngredient): string {
+    return line.ingredient?.name ?? this.withoutLeadingAmount(line);
+  }
+
+  /**
+   * Whether to print an amount of its own beside the text.
+   *
+   * A matched line always does. An unmatched line does only when its raw text
+   * no longer carries one — otherwise the amount appears twice, which is the
+   * bug this exists to stop.
+   *
+   * The exception is a scaled view. There the number on screen is the whole
+   * point of scaling, so when the raw amount could not be identified and
+   * removed, the scaled figure is printed anyway: showing it beside a stale one
+   * is confusing, but silently showing only the unscaled text is wrong, and
+   * this app prefers a visible oddity to a quiet lie.
+   */
+  showsAmount(line: RecipeIngredient): boolean {
+    if (!this.display(line)) return false;
+    if (line.ingredient) return true;
+
+    return this.withoutLeadingAmount(line) !== line.rawText.trim() || line.scaled != null;
+  }
+
+  /**
+   * `rawText` with its own leading amount removed, when that amount is
+   * recognisable.
+   *
+   * Several spellings are tried because the parser keeps the source wording:
+   * "2 tsp salt", "2 teaspoons salt" and "2 teaspoon salt" all reduce to the
+   * same quantity and unit, and only one of them is what `amountWithUnit`
+   * renders. Anything unrecognised is left exactly as written — a wrong guess
+   * here would silently delete part of an ingredient's name.
+   */
+  private withoutLeadingAmount(line: RecipeIngredient): string {
+    const raw = line.rawText.trim();
+    if (line.quantity === null) return raw;
+
+    const amount = trimQuantity(line.quantity, 3);
+    const unit = line.unit;
+    const candidates = unit
+      ? [
+          amountWithUnit(line.quantity, unit),
+          `${amount} ${unit.abbrev ?? ""}`,
+          `${amount} ${unit.plural}`,
+          `${amount} ${unit.name}`,
+        ]
+      : [amount];
+
+    for (const candidate of candidates) {
+      const prefix = candidate.trim();
+      if (!prefix || !raw.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+
+      // Whole words only: "2" must not be shaved off "200 g", and "2 cup" must
+      // not be shaved off "2 cupfuls".
+      const rest = raw.slice(prefix.length);
+      if (rest !== "" && !/^[\s,.]/.test(rest)) continue;
+
+      const trimmed = rest.replace(/^[\s,.]+/, "");
+      // Never leave the line nameless — "2 cups" on its own is all the text
+      // there is, and an empty name would render a bare amount.
+      if (trimmed) return trimmed;
+    }
+
+    return raw;
   }
 
   /** Lines under their "For the sauce" headings, in order. */

@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   inject,
+  input,
   signal,
 } from "@angular/core";
 import {
@@ -24,6 +25,7 @@ import { MatCardModule } from "@angular/material/card";
 import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
+import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatSelectModule } from "@angular/material/select";
 
 import { ApiService } from "../core/api.service";
@@ -42,6 +44,15 @@ interface IngredientRow {
   unitId: number;
   preparation: string;
   optional: boolean;
+  /**
+   * The line exactly as it is already stored, empty on a new row.
+   *
+   * On the paste path this is the cook's original wording and the only record
+   * of what was meant, so an edit must not casually rewrite it.
+   */
+  rawText: string;
+  /** The name as seeded, so "the cook renamed this" is a fact, not a guess. */
+  seedName: string;
 }
 
 interface StepRow {
@@ -56,12 +67,20 @@ function blankIngredient(): IngredientRow {
     unitId: 0,
     preparation: "",
     optional: false,
+    rawText: "",
+    seedName: "",
   };
 }
 
 /**
  * Writes a recipe by hand, for the ones that never existed as text to paste —
- * a family card, something worked out at the stove.
+ * a family card, something worked out at the stove — and edits one already
+ * saved, at `/recipes/:id/edit`.
+ *
+ * One component for both because they are the same form over the same payload:
+ * `PATCH` replaces ingredients, steps and tags wholesale, exactly as `POST`
+ * writes them, so the only real differences are where the model starts and
+ * which method the save calls.
  *
  * The catalog link per line is optional on purpose. An unmatched line keeps its
  * text and simply sits out of pantry maths, which is the same contract the
@@ -81,17 +100,24 @@ function blankIngredient(): IngredientRow {
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatProgressBarModule,
     MatSelectModule,
   ],
   template: `
     <div class="page">
       <div class="page-header">
-        <h1>New recipe</h1>
-        <a mat-stroked-button routerLink="/recipes/import">
-          <mat-icon>content_paste</mat-icon>
-          Paste one instead
-        </a>
+        <h1>{{ editing() ? "Edit recipe" : "New recipe" }}</h1>
+        @if (!editing()) {
+          <a mat-stroked-button routerLink="/recipes/import">
+            <mat-icon>content_paste</mat-icon>
+            Paste one instead
+          </a>
+        }
       </div>
+
+      @if (loading()) {
+        <mat-progress-bar mode="indeterminate" />
+      }
 
       <form [formRoot]="recipeForm" (submit)="save($event)">
         <mat-card>
@@ -300,11 +326,15 @@ function blankIngredient(): IngredientRow {
         }
 
         <div class="actions">
-          <button mat-flat-button type="submit" [disabled]="busy()">
+          <button mat-flat-button type="submit" [disabled]="busy() || loading()">
             <mat-icon>save</mat-icon>
-            Save recipe
+            {{ editing() ? "Save changes" : "Save recipe" }}
           </button>
-          <a mat-button routerLink="/recipes">Cancel</a>
+          @if (editing()) {
+            <a mat-button [routerLink]="['/recipes', id()]">Cancel</a>
+          } @else {
+            <a mat-button routerLink="/recipes">Cancel</a>
+          }
         </div>
       </form>
     </div>
@@ -392,8 +422,22 @@ export class RecipeFormComponent {
   private readonly notify = inject(NotifyService);
   private readonly router = inject(Router);
 
+  /**
+   * The recipe being edited, bound from the route by `withComponentInputBinding`.
+   *
+   * Typed as possibly undefined, and read through `?? ""`, because that is what
+   * actually arrives on `/recipes/new`: a route with no `:id` binds the input to
+   * `undefined` rather than leaving the declared default in place. A default of
+   * `""` here compiles, types as `string`, and then threw on `.trim()` — which
+   * rendered the new-recipe screen blank with only a console error to show for
+   * it.
+   */
+  readonly id = input<string | undefined>(undefined);
+  readonly editing = computed(() => (this.id() ?? "").trim() !== "");
+
   readonly units = signal<Unit[]>([]);
   readonly busy = signal(false);
+  readonly loading = signal(false);
   readonly error = signal("");
 
   /**
@@ -481,6 +525,63 @@ export class RecipeFormComponent {
       next: (units) => this.units.set(units),
       error: (error: unknown) =>
         this.notify.error(error, "Could not load the units."),
+    });
+
+    // Deferred a tick: route inputs are not bound while the constructor runs,
+    // and reading `id()` here throws NG0950 with nothing to show for it at
+    // build time.
+    queueMicrotask(() => {
+      if (this.editing()) this.load(Number(this.id()));
+    });
+  }
+
+  /**
+   * Fills the form from the saved recipe.
+   *
+   * `set` on the model rather than a `linkedSignal`: the router builds a fresh
+   * component per recipe, so there is no input swapping underneath a live form
+   * here — unlike the pantry and planner forms, which the parent keeps alive.
+   */
+  private load(id: number): void {
+    this.loading.set(true);
+
+    this.api.recipe(id).subscribe({
+      next: (recipe) => {
+        this.model.set({
+          title: recipe.title,
+          description: recipe.description ?? "",
+          servings: recipe.servings,
+          prepMinutes: recipe.prepMinutes ?? 0,
+          cookMinutes: recipe.cookMinutes ?? 0,
+          sourceNote: recipe.sourceNote ?? "",
+          sourceUrl: recipe.sourceUrl ?? "",
+          notes: recipe.notes ?? "",
+          tags: recipe.tags.map((tag) => tag.name).join(", "),
+          ingredients: recipe.ingredients.map((line) => ({
+            ingredientId: line.ingredient?.id ?? 0,
+            // A line that never matched the catalog has no name of its own —
+            // rawText is the only text it carries, so that is what the cook
+            // sees and can correct.
+            name: line.ingredient?.name ?? line.rawText,
+            quantity: line.quantity ?? "",
+            unitId: line.unit?.id ?? 0,
+            preparation: line.preparation ?? "",
+            optional: line.optional,
+            rawText: line.rawText,
+            seedName: line.ingredient?.name ?? line.rawText,
+          })),
+          steps: recipe.steps.map((step) => ({ text: step.text })),
+        });
+
+        // Clears touched and dirty along with the value, so an edit screen does
+        // not open already showing errors on fields nobody has been near.
+        this.recipeForm().reset();
+        this.loading.set(false);
+      },
+      error: (error: unknown) => {
+        this.loading.set(false);
+        this.notify.error(error, "Could not load that recipe.");
+      },
     });
   }
 
@@ -590,7 +691,7 @@ export class RecipeFormComponent {
         servings: Number(value.servings) || 1,
         ingredients: value.ingredients.map((row) => ({
           ...(row.ingredientId ? { ingredientId: row.ingredientId } : {}),
-          rawText: this.rawText(row),
+          rawText: this.lineText(row),
           ...(row.quantity.trim() ? { quantity: row.quantity.trim() } : {}),
           ...(row.unitId ? { unitId: row.unitId } : {}),
           ...(row.preparation.trim()
@@ -601,21 +702,39 @@ export class RecipeFormComponent {
         steps: value.steps.map((step) => ({ text: step.text.trim() })),
       };
 
-      if (value.description.trim()) body.description = value.description.trim();
-      if (Number(value.prepMinutes) > 0) body.prepMinutes = Number(value.prepMinutes);
-      if (Number(value.cookMinutes) > 0) body.cookMinutes = Number(value.cookMinutes);
-      if (value.sourceNote.trim()) body.sourceNote = value.sourceNote.trim();
-      if (value.sourceUrl.trim()) body.sourceUrl = value.sourceUrl.trim();
-      if (value.notes.trim()) body.notes = value.notes.trim();
-
       const tags = value.tags
         .split(",")
         .map((name) => name.trim())
         .filter((name) => name.length > 0);
-      if (tags.length) body.tags = tags.map((name) => ({ name }));
+
+      if (this.editing()) {
+        // Sent whether or not they hold anything, because on a PATCH an absent
+        // field means "leave alone" — omitting the empty ones is what would
+        // make a description or a wrong link impossible to take away. The API
+        // reads "" and 0 as "clear it".
+        body.description = value.description.trim();
+        body.sourceNote = value.sourceNote.trim();
+        body.sourceUrl = value.sourceUrl.trim();
+        body.notes = value.notes.trim();
+        body.prepMinutes = Number(value.prepMinutes) || 0;
+        body.cookMinutes = Number(value.cookMinutes) || 0;
+        body.tags = tags.map((name) => ({ name }));
+      } else {
+        if (value.description.trim()) body.description = value.description.trim();
+        if (Number(value.prepMinutes) > 0) body.prepMinutes = Number(value.prepMinutes);
+        if (Number(value.cookMinutes) > 0) body.cookMinutes = Number(value.cookMinutes);
+        if (value.sourceNote.trim()) body.sourceNote = value.sourceNote.trim();
+        if (value.sourceUrl.trim()) body.sourceUrl = value.sourceUrl.trim();
+        if (value.notes.trim()) body.notes = value.notes.trim();
+        if (tags.length) body.tags = tags.map((name) => ({ name }));
+      }
 
       try {
-        const recipe = await firstValueFrom(this.api.createRecipe(body));
+        const recipe = await firstValueFrom(
+          this.editing()
+            ? this.api.updateRecipe(Number(this.id()), body)
+            : this.api.createRecipe(body),
+        );
         this.notify.success(`Saved “${recipe.title}”.`);
         void this.router.navigate(["/recipes", recipe.id]);
       } catch (error: unknown) {
@@ -623,6 +742,21 @@ export class RecipeFormComponent {
         this.error.set(this.message(error));
       }
     });
+  }
+
+  /**
+   * The line to store: the text already on record, unless the cook renamed it.
+   *
+   * Deliberately *not* recomposed when only the amount or preparation changed.
+   * `rawText` is the record of the line's wording; the amount lives in its own
+   * column and the recipe screen renders it separately, so folding a new amount
+   * back in here would print it twice — "1 a pinch of salt" beside the 1 that
+   * is already on screen. A rename is the case that does need recomposing,
+   * because the stored wording no longer names the right thing.
+   */
+  private lineText(row: IngredientRow): string {
+    const renamed = row.name.trim() !== row.seedName.trim();
+    return row.rawText && !renamed ? row.rawText : this.rawText(row);
   }
 
   /**

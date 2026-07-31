@@ -37,6 +37,14 @@ export const routes: Routes = [
       import('./recipes/recipe-form.component').then((m) => m.RecipeFormComponent),
   },
   {
+    // Also ahead of 'recipes/:id' — the same component as 'recipes/new', which
+    // fills itself from the recipe when the route hands it an id.
+    path: 'recipes/:id/edit',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./recipes/recipe-form.component').then((m) => m.RecipeFormComponent),
+  },
+  {
     path: 'recipes/:id',
     canActivate: [authGuard],
     loadComponent: () =>

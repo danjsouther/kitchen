@@ -292,6 +292,58 @@ The fuzzy matcher is the one place in the codebase writing raw SQL —
 the tenancy extension and states its household filter by hand. `npm test` and a
 live check both cover that it cannot reach another household's private catalog.
 
+## Editing, and how a field gets cleared
+
+`/recipes/:id/edit` is the same component as `/recipes/new`, because `PATCH`
+replaces ingredients, steps and tags wholesale exactly as `POST` writes them.
+Only two things differ: where the model starts, and which method the save calls.
+
+Editing raises a problem creating never does. On a `PATCH` an **absent field
+means "leave alone"**, so a screen that omits its empty fields — which is right
+on create, where absent and empty mean the same thing — can add a description
+but never take one away. So on the nullable columns:
+
+- an **empty string clears** `description`, `sourceUrl`, `sourceNote` and
+  `notes`, and the edit screen always sends them;
+- **zero clears** `prepMinutes` and `cookMinutes`, since `Int?` has no way to
+  say "exactly no prep" and the create path has always dropped a 0;
+- `sourceUrl` is exempted from `IsUrl` when empty, because otherwise the one
+  value that means "remove the link" is the one value validation rejects.
+
+The catalog says the same thing with **null**, because `""` is not a value a
+`Decimal` DTO can take. `PATCH /ingredients/:id` reads an explicit null as "this
+genuinely has no density", distinct from an absent field's "leave it alone", and
+the editor sends one for every box the cook emptied.
+
+That distinction was half-built by accident and worth knowing about, because the
+accident is load-bearing: `@IsOptional()` skips every other validator when a
+value is null, so nulls already reached Prisma and already cleared the column.
+What it also did was let a null `name` through to a `NOT NULL` column, and hand
+a null `categoryId` to a `findUnique` that cannot look one up — two 500s for
+what should have been a 400 and an ordinary edit. So nullability is now stated
+per field rather than inherited: `@ValidateIf` on `name`, which cannot be null,
+and null skipped explicitly in the foreign-key check.
+
+**`rawText` is not recomposed unless the line was renamed.** It is the record of
+the line's *wording* — on a pasted recipe, the cook's own — while the amount
+lives in its own column and is rendered separately. Folding a changed amount
+back in would print it twice. A rename is the case that does need it, since the
+stored wording no longer names the right thing.
+
+The recipe screen holds up the other end of that. An unmatched line has no name
+of its own, so `rawText` — the whole line, amount included — is what it shows;
+printing the quantity column beside it gave "2 cups **2 cups** dried beans" for
+every unresolved line the parser produced. The amount is now taken back off the
+front of the raw text where it can be identified, several spellings deep
+("2 tsp", "2 teaspoons", "2 teaspoon"), and anything unrecognised is left
+exactly as written — shaving "2" off "200 g flour" would silently corrupt a
+name.
+
+Where the amount could not be identified, a **scaled** view still prints the
+scaled figure beside the untouched text. Two numbers on one line is confusing;
+showing only the unscaled wording after someone asked for six servings is
+wrong, and the bad-but-visible option wins.
+
 ## Cooking closes the loop
 
 `POST /planner/:id/cook` is where a recipe becomes a change to the pantry. It
@@ -325,6 +377,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 |---|---|
 | `/recipes` | The collection, searchable by title, description or an ingredient |
 | `/recipes/import` | Paste-and-review — raw text beside the parse, with a picker on anything uncertain |
+| `/recipes/new`, `/recipes/:id/edit` | Write one by hand, or correct one already saved |
 | `/recipes/:id` | The recipe, with a serving scaler |
 | `/pantry` | On-hand totals and every individual lot, with expiry warnings |
 | `/plan` | The week grid; cook a meal from here, or undo one |
