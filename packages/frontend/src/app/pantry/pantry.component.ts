@@ -48,6 +48,10 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
           <mat-icon>science</mat-icon>
           Ingredients
         </a>
+        <a mat-stroked-button routerLink="/pantry/barcodes">
+          <mat-icon>barcode_reader</mat-icon>
+          Barcodes
+        </a>
         <button mat-flat-button (click)="startAdd()">
           <mat-icon>add</mat-icon>
           Add
@@ -154,6 +158,12 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
                   </div>
                   <div class="row small muted">
                     <span>{{ lot.location.name }}</span>
+                    @if (lot.product; as product) {
+                      <span class="row" [matTooltip]="product.name">
+                        <mat-icon class="tiny">barcode_reader</mat-icon>
+                        {{ product.barcode }}
+                      </span>
+                    }
                     @if (lot.expiresOn) {
                       <span [class]="expiryClass(lot)">
                         {{ expiryWord(lot) }}

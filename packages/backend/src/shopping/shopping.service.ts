@@ -17,6 +17,7 @@ import {
 
 import { toUnitDef } from '../catalog/units.service';
 import { parseDate } from '../planner/planner.service';
+import { ProductsService } from '../products/products.service';
 import { SuggestionsService } from '../suggestions/suggestions.service';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { StoresService } from './stores.service';
@@ -47,6 +48,11 @@ const LIST_INCLUDE = {
       ingredient: { select: { id: true, name: true, categoryId: true } },
       unit: true,
       store: { select: { id: true, name: true } },
+      // Null on most lines. When set, the list can show exactly which pack to
+      // pick up rather than "flour, 1 kg".
+      product: {
+        select: { barcode: true, name: true, brands: true, imageSmallUrl: true },
+      },
     },
   },
 };
@@ -57,6 +63,7 @@ export class ShoppingService {
     @Inject(TENANT_PRISMA) private readonly db: TenantPrisma,
     private readonly stores: StoresService,
     private readonly suggestions: SuggestionsService,
+    private readonly products: ProductsService,
   ) {}
 
   // -- Lists ---------------------------------------------------------------
@@ -198,7 +205,12 @@ export class ShoppingService {
   async addItem(listId: number, dto: AddListItemDto) {
     const list = await this.requireOpenList(listId);
 
-    if (!dto.ingredientId && !dto.rawName?.trim()) {
+    const scanned = await this.resolveScannedProduct(dto.productId);
+    const ingredientId = dto.ingredientId ?? scanned.ingredientId;
+
+    // A scanned product with a binding is a perfectly good "what is it", so the
+    // check runs after the barcode has had its say rather than before.
+    if (!ingredientId && !dto.rawName?.trim() && !scanned.barcode) {
       throw new BadRequestException('An item needs either an ingredient or a name.');
     }
     if (dto.unitId && !dto.quantity) {
@@ -208,13 +220,18 @@ export class ShoppingService {
     await this.db.shoppingListItem.create({
       data: {
         listId: list.id,
-        ingredientId: dto.ingredientId ?? null,
-        rawName: dto.rawName?.trim() || null,
+        ingredientId: ingredientId ?? null,
+        // An unbound scan still needs something to read on the list, so the
+        // product name stands in rather than leaving a blank line.
+        rawName: dto.rawName?.trim() || (ingredientId ? null : scanned.name),
         quantity: dto.quantity ?? null,
         unitId: dto.unitId ?? null,
         source: ItemSource.MANUAL,
-        brand: dto.brand?.trim() || null,
-        estimatedPrice: dto.estimatedPrice ?? null,
+        brand: dto.brand?.trim() || scanned.brand,
+        productId: scanned.barcode,
+        estimatedPrice:
+          dto.estimatedPrice ??
+          (await this.lastPriceForProduct(scanned.barcode, dto.quantity, dto.unitId)),
         note: dto.note?.trim() || null,
       },
     });
@@ -242,6 +259,13 @@ export class ShoppingService {
     if (dto.quantity !== undefined) data.quantity = dto.quantity;
     if (dto.unitId !== undefined) data.unitId = dto.unitId;
     if (dto.brand !== undefined) data.brand = dto.brand?.trim() || null;
+    if (dto.productId !== undefined) {
+      // Scanning at the shelf. An empty string detaches the product; a barcode
+      // attaches it and refreshes the brand, since the two now come as a pair.
+      const scanned = await this.resolveScannedProduct(dto.productId);
+      data.productId = scanned.barcode;
+      if (scanned.brand && dto.brand === undefined) data.brand = scanned.brand;
+    }
     if (dto.actualPrice !== undefined) data.actualPrice = dto.actualPrice;
     if (dto.storeId !== undefined) data.storeId = dto.storeId;
     if (dto.note !== undefined) data.note = dto.note?.trim() || null;
@@ -314,6 +338,9 @@ export class ShoppingService {
               quantity: item.quantity,
               unitId: item.unitId,
               brand: item.brand,
+              // Carried through, so the lot on the shelf knows which pack it
+              // is. Scanning it again later finds the same product.
+              productId: item.productId,
               expiresOn,
             } as never,
           });
@@ -343,6 +370,9 @@ export class ShoppingService {
                 ingredientId: item.ingredient.id,
                 storeId: item.storeId ?? list.storeId,
                 brand: item.brand,
+                // A price for a barcode is a far better estimate than a price
+                // for "flour", and this is the only moment it can be recorded.
+                productId: item.productId,
                 quantity: item.quantity,
                 unitId: item.unitId,
                 price: item.actualPrice,
@@ -372,6 +402,82 @@ export class ShoppingService {
   }
 
   // -- Internals -----------------------------------------------------------
+
+  /**
+   * Resolves an optional barcode from client input.
+   *
+   * Mirrors `PantryService.resolveScannedProduct` deliberately: both normalize
+   * through the same function, check the product exists, and read the
+   * household's binding, so a barcode means the same thing on a list as it does
+   * on a shelf. An empty string is "detach", which is distinct from the field
+   * being absent — that means "leave it alone" and never reaches here.
+   */
+  private async resolveScannedProduct(productId: string | undefined): Promise<{
+    barcode: string | null;
+    ingredientId: number | null;
+    brand: string | null;
+    name: string | null;
+  }> {
+    if (!productId?.trim()) {
+      return { barcode: null, ingredientId: null, brand: null, name: null };
+    }
+
+    const barcode = this.products.requireBarcode(productId);
+    const product = await this.products.requireProduct(barcode);
+    const binding = await this.products.bindingFor(barcode);
+
+    return {
+      barcode,
+      ingredientId: binding?.ingredientId ?? null,
+      brand: product.brands?.split(',')[0]?.trim() || null,
+      name: product.name,
+    };
+  }
+
+  /**
+   * What this exact product cost last time, as an estimate for this line.
+   *
+   * A price for a barcode beats a price for "flour" by a wide margin — it is
+   * the same pack, the same size, usually the same shop. Only the household's
+   * own observations are visible here, which the tenancy extension guarantees
+   * rather than this method having to remember it.
+   *
+   * Returns null rather than a guess in the two cases where the arithmetic
+   * would be invented:
+   *
+   * - the line names a **different unit** from the observation, which would
+   *   need a density this method does not have;
+   * - there is no observation at all.
+   *
+   * A line with no quantity gets the observed price as-is, because that is what
+   * one of this product cost.
+   */
+  private async lastPriceForProduct(
+    barcode: string | null,
+    quantity: string | undefined,
+    unitId: number | undefined,
+  ): Promise<string | null> {
+    if (!barcode) return null;
+
+    const observation = await this.db.priceObservation.findFirst({
+      where: { productId: barcode },
+      orderBy: { observedOn: 'desc' },
+      select: { price: true, quantity: true, unitId: true },
+    });
+    if (!observation) return null;
+
+    if (quantity === undefined) return observation.price.toString();
+    if (unitId !== observation.unitId) return null;
+
+    const observed = new Decimal(observation.quantity);
+    if (observed.lte(0)) return null;
+
+    return new Decimal(observation.price)
+      .div(observed)
+      .times(new Decimal(quantity))
+      .toDecimalPlaces(2)
+      .toString();
+  }
 
   private async requireOpenList(id: number) {
     const list = await this.db.shoppingList.findFirst({

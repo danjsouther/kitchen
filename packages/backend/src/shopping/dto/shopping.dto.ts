@@ -132,6 +132,16 @@ export class AddListItemDto {
   @IsNumberString({}, { message: 'estimatedPrice must be a number.' })
   estimatedPrice?: string;
 
+  /**
+   * A specific product, when the shopper knows which one they want. Supplies
+   * the ingredient via this household's binding if none is given, the same way
+   * the pantry form does.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  productId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(300)
@@ -163,6 +173,12 @@ export class UpdateListItemDto {
   @IsInt()
   @IsPositive()
   storeId?: number;
+
+  /** Scanning at the shelf: attach the product actually being bought. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  productId?: string;
 
   /** Ticking the box at the shelf. */
   @IsOptional()

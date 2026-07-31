@@ -107,6 +107,21 @@ import type {
                     >call_split</mat-icon
                   >
                 }
+
+                <!--
+                  A specific pack, not just "flour". Worth showing because it is
+                  the difference between finding the right thing on the shelf and
+                  guessing — and it survives onto the pantry lot on receive.
+                -->
+                @if (item.product; as product) {
+                  <span
+                    class="muted small nowrap"
+                    [matTooltip]="product.name + ' · ' + product.barcode"
+                  >
+                    <mat-icon class="tiny">barcode_reader</mat-icon>
+                    {{ product.name }}
+                  </span>
+                }
               </div>
 
               <mat-form-field appearance="outline" class="price">
@@ -181,6 +196,9 @@ import type {
     }
     .small {
       font-size: 0.85rem;
+    }
+    .nowrap {
+      white-space: nowrap;
     }
     .running {
       min-width: 9rem;

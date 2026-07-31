@@ -9,6 +9,7 @@ import { TxKind, type UnitDef } from '@recipes/shared-types';
 
 import { IngredientsService } from '../catalog/ingredients.service';
 import { UnitsService, toUnitDef } from '../catalog/units.service';
+import { ProductsService } from '../products/products.service';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { planDeduction } from './deduction';
 import { balanceFor, type BalanceLot, shortfallAgainstPar } from './pantry-balance';
@@ -24,6 +25,11 @@ import type {
 const LOT_INCLUDE = {
   unit: true,
   location: { select: { id: true, name: true, sortOrder: true } },
+  // Null on the great majority of lots — most are typed in by hand — so every
+  // consumer must treat it as optional rather than assume a scan happened.
+  product: {
+    select: { barcode: true, name: true, brands: true, imageSmallUrl: true },
+  },
   ingredient: {
     select: {
       id: true,
@@ -51,6 +57,7 @@ export class PantryService {
     @Inject(TENANT_PRISMA) private readonly db: TenantPrisma,
     private readonly units: UnitsService,
     private readonly ingredients: IngredientsService,
+    private readonly products: ProductsService,
   ) {}
 
   // -- Lots ----------------------------------------------------------------
@@ -87,8 +94,20 @@ export class PantryService {
    */
   async create(dto: CreatePantryItemDto, userId: number) {
     const quantity = this.parsePositive(dto.quantity, 'quantity');
+
+    const scanned = await this.resolveScannedProduct(dto);
+    const ingredientId = dto.ingredientId ?? scanned.ingredientId;
+    if (!ingredientId) {
+      throw new BadRequestException(
+        scanned.barcode
+          ? `Barcode ${scanned.barcode} is not linked to an ingredient yet. ` +
+            'Pick one, and it will be remembered for next time.'
+          : 'A lot needs an ingredient.',
+      );
+    }
+
     const [ingredient] = await Promise.all([
-      this.requireIngredient(dto.ingredientId),
+      this.requireIngredient(ingredientId),
       this.units.resolve([dto.unitId]),
     ]);
     await this.requireLocation(dto.locationId);
@@ -105,11 +124,14 @@ export class PantryService {
     return this.db.$transaction(async (tx) => {
       const lot = await tx.pantryItem.create({
         data: {
-          ingredientId: dto.ingredientId,
+          ingredientId,
           locationId: dto.locationId,
           quantity,
           unitId: dto.unitId,
-          brand: dto.brand?.trim() || null,
+          // Typed brand wins over the product's: someone who scanned a barcode
+          // and then corrected the brand meant the correction.
+          brand: dto.brand?.trim() || scanned.brand,
+          productId: scanned.barcode,
           openedOn: dto.openedOn ? new Date(dto.openedOn) : null,
           expiresOn,
           note: dto.note?.trim() || null,
@@ -120,7 +142,7 @@ export class PantryService {
       await tx.pantryTransaction.create({
         data: {
           pantryItemId: lot.id,
-          ingredientId: dto.ingredientId,
+          ingredientId,
           delta: quantity,
           unitId: dto.unitId,
           kind: TxKind.PURCHASE,
@@ -487,6 +509,43 @@ export class PantryService {
       throw new BadRequestException(`${field} cannot be negative.`);
     }
     return amount.toString();
+  }
+
+  /**
+   * Turns an optional scanned barcode into the things a lot denormalizes from it.
+   *
+   * Three separate concerns, deliberately resolved here rather than at three
+   * call sites:
+   *
+   * - the barcode is **normalized**, so a lot scanned as 12-digit UPC-A points
+   *   at the same row as one scanned as EAN-13;
+   * - the product must **exist** in the mirror, or the foreign key would fail
+   *   later with a constraint name instead of a sentence;
+   * - the household's **binding** supplies the ingredient when the client did
+   *   not send one, which is what makes a scan-and-save flow possible at all.
+   *
+   * `brand` is copied off the product so the pantry list, the shopping
+   * generator and the AI suggestions all keep working unchanged — they read
+   * `brand`, and none of them should have to learn about barcodes.
+   */
+  private async resolveScannedProduct(dto: {
+    productId?: string;
+  }): Promise<{ barcode: string | null; ingredientId: number | null; brand: string | null }> {
+    if (!dto.productId?.trim()) {
+      return { barcode: null, ingredientId: null, brand: null };
+    }
+
+    const barcode = this.products.requireBarcode(dto.productId);
+    const product = await this.products.requireProduct(barcode);
+    const binding = await this.products.bindingFor(barcode);
+
+    return {
+      barcode,
+      ingredientId: binding?.ingredientId ?? null,
+      // OFF stores brands as a comma-separated list; the first is the one on
+      // the front of the pack, which is what a person means by "the brand".
+      brand: product.brands?.split(',')[0]?.trim() || null,
+    };
   }
 
   private async requireIngredient(id: number) {

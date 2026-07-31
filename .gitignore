@@ -14,6 +14,10 @@ dist/
 # Uploaded recipe images
 /packages/backend/uploads/
 
+# Open Food Facts dumps — `npm run off:download` puts a ~12.5 GB .jsonl.gz here.
+# It is refreshed monthly from OFF and is never part of the repo or the image.
+/packages/backend/data/
+
 # OS / editor
 .DS_Store
 Thumbs.db

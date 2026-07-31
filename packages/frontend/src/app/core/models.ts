@@ -63,6 +63,15 @@ export interface IngredientWrite {
 /** Mirrors CreatePantryItemDto / UpdatePantryItemDto. */
 export interface PantryItemWrite {
   ingredientId?: number;
+  /**
+   * A scanned barcode. Sent in any format — the server normalizes it, using the
+   * same function the importer used, which is what makes a 12-digit US scan
+   * find the 13-digit row.
+   *
+   * When this household has a binding for it, `ingredientId` may be omitted and
+   * the binding supplies it.
+   */
+  productId?: string;
   locationId?: number;
   quantity?: string;
   unitId?: number;
@@ -75,6 +84,68 @@ export interface PantryItemWrite {
    */
   expiresOn?: string | null;
   note?: string;
+}
+
+/**
+ * A row from the global Open Food Facts mirror.
+ *
+ * Global and read-only: no `householdId`, and there is no endpoint that creates
+ * or edits one. What a household owns is the `ProductBinding` saying which
+ * ingredient it means by this barcode.
+ *
+ * `packQuantity` and `packUnit` are both null when the pack size would not
+ * parse — "a family size box" — and `quantityRaw` still carries the original
+ * text so the card can show it. Null here means "we could not read this size",
+ * which is not the same as the product having no size.
+ */
+export interface Product {
+  barcode: string;
+  name: string;
+  brands: string | null;
+  quantityRaw: string | null;
+  packQuantity: string | null;
+  packUnitId: number | null;
+  packUnit: Pick<Unit, 'id' | 'name' | 'plural' | 'abbrev' | 'kind'> | null;
+  categoriesTags: string[];
+  imageSmallUrl: string | null;
+  /** Per-100g values as Open Food Facts recorded them. Empty when unknown. */
+  nutriments: Record<string, number>;
+  /** 'a'–'e', or null where OFF never computed one. */
+  nutriscoreGrade: string | null;
+  importedOn: string;
+}
+
+/** What this household means by a barcode. */
+export interface ProductBinding {
+  id: number;
+  productId: string;
+  ingredientId: number;
+  ingredient: { id: number; name: string; slug: string };
+}
+
+/** A binding as the admin list returns it, with the product joined on. */
+export interface ProductBindingRow extends ProductBinding {
+  product: Pick<Product, 'barcode' | 'name' | 'brands' | 'imageSmallUrl'>;
+}
+
+/**
+ * What a scan resolves to.
+ *
+ * All three states are ordinary and the UI handles each differently:
+ *
+ * - `product` set, `binding` set — everything known; fill the form and save.
+ * - `product` set, `binding` null — the pack is known but not what it *is*;
+ *   offer `suggestedIngredients` and bind on confirmation.
+ * - `product` null — not in the mirror at all; fall back to manual entry.
+ *
+ * A miss is deliberately not an error: plenty of store-brand goods are simply
+ * not in Open Food Facts.
+ */
+export interface BarcodeLookup {
+  barcode: string;
+  product: Product | null;
+  binding: (ProductBinding & { ingredient: ProductBinding['ingredient'] }) | null;
+  suggestedIngredients: Ingredient[];
 }
 
 export interface AuthUser {
@@ -199,6 +270,8 @@ export interface PantryLot {
   unit: Unit;
   location: { id: number; name: string };
   ingredient: { id: number; name: string; slug: string };
+  /** Null on most lots — the great majority are typed in, not scanned. */
+  product: Pick<Product, 'barcode' | 'name' | 'brands' | 'imageSmallUrl'> | null;
 }
 
 export interface StorageLocation {
@@ -342,6 +415,8 @@ export interface ShoppingListItem {
   source: string;
   ingredient: { id: number; name: string } | null;
   unit: Unit | null;
+  /** Set when the shopper picked a specific pack rather than "flour". */
+  product: Pick<Product, 'barcode' | 'name' | 'brands' | 'imageSmallUrl'> | null;
 }
 
 export interface ShoppingList {

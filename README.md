@@ -139,6 +139,144 @@ else works normally.
 Rotating `AI_ENCRYPTION_KEY` makes every stored household key undecryptable; each household
 then re-enters its own.
 
+## Barcodes come from an offline Open Food Facts mirror
+
+Scanning a barcode at the fridge should not depend on someone else's uptime, and
+Open Food Facts asks that bulk consumers use its data dumps rather than hitting
+the API. So **there is no live OFF lookup anywhere in this app.** A monthly
+import loads a JSONL export into a global `product` table, and every scan is a
+local query.
+
+```sh
+npm run off:download -w packages/backend                       # ~12.5 GB, monthly
+npm run off:import -w packages/backend -- --file data/off/openfoodfacts-products.jsonl.gz
+```
+
+The import streams gunzip → JSONL → batched upserts. It is idempotent, so
+re-running over the same dump refreshes rows rather than duplicating them —
+which is also what makes an interrupted run safe to simply repeat.
+
+What one full run actually costs, measured rather than estimated:
+
+| | |
+|---|---|
+| Dump on disk | 12.5 GB compressed |
+| Lines read | 4.65 million |
+| Kept with the default `en:united-states` filter | 926,000 |
+| Wall clock | ~25 minutes |
+| Peak RSS | ~1 GB, flat throughout |
+| Resulting `product` table | ~560 MB |
+
+**Do not rewrite `writeBatch` as per-row Prisma upserts.** It is one multi-row
+`INSERT ... ON CONFLICT DO UPDATE` on purpose. The obvious per-row version
+retained memory that was never reclaimed and died with `Reached heap limit`
+about a fifth of the way through a real dump — 3,023 MB of heap against 359 MB
+for the bulk statement over identical input, and half the throughput. There is a
+comment on the function saying so.
+
+An interrupted import always restarts from the beginning of the file; there is
+no resume. At ~25 minutes that has been an acceptable trade, but it is the first
+thing to add if it stops being one.
+
+| Flag | Does |
+|---|---|
+| `--file <path>` | The dump, `.jsonl` or `.jsonl.gz` (required) |
+| `--countries a,b` | OFF country tags to keep. Defaults to `en:united-states` |
+| `--all` | No country filter — the whole world |
+| `--limit <n>` | Stop after n products, for a quick trial |
+| `--replace` | Delete existing products first. Refuses if any are in use |
+
+**Refresh monthly, by hand or by cron.** It is deliberately not part of
+`dev:up`, the Docker entrypoint, or any nightly job, and the dump is not in the
+image: turning a five-second boot into a twenty-minute one, for data that
+changes slowly, is a bad trade.
+
+To try the whole thing without downloading anything, there is a fixture dump of
+fifteen rows in the real export's shape — awkward cases included: a comma
+decimal separator, a multipack, a pack size that is prose, a unit the seed has
+no row for, a row with no barcode, a row with no name, and a truncated line:
+
+```sh
+npm run off:import -w packages/backend -- --file packages/backend/prisma/seed/off-fixtures/products.jsonl --all
+```
+
+### Global products, household bindings
+
+The tenancy split here is worth stating precisely, because it differs from the
+one the ingredient catalog uses:
+
+- **`Product` is global and has no `householdId` at all.** It is written by the
+  import CLI and by no endpoint. There is no fork-and-customize path as there is
+  for ingredients — a barcode identifies a physical pack, and a private
+  duplicate of one would defeat the only thing a barcode is good for.
+- **`ProductBinding` is household-scoped**, and is the only thing a household
+  owns here: the line from a barcode to *its* ingredient. Two households can
+  scan the same jar and mean different rows in their own catalogs.
+
+So `PUT /products/:barcode/binding` is the single write path for "using" a
+product. Everything else about products is a read.
+
+Scanning is normalized on both sides by the same function, which is what makes
+it work at all: a US pack scans as 12-digit UPC-A while OFF stores it as EAN-13
+with a leading zero, and UPC-E scans short. Without that, every American barcode
+would miss a row sitting in the table.
+
+Three outcomes from a scan, all ordinary:
+
+| What came back | What the pantry form does |
+|---|---|
+| Product **and** binding | Fills in the ingredient, brand and unit; save |
+| Product, **no** binding | Shows the pack, suggests ingredients, binds on your click |
+| No product | Says so, and falls back to the manual flow |
+
+A miss is not an error — plenty of store-brand goods are simply not in OFF — and
+nothing is ever bound automatically, however good a suggestion looks. A wrong
+binding is written once and then silently applied to every future scan of that
+barcode.
+
+Pack sizes get the same treatment as everything else here. `quantity` in the
+dump is free text: "345 g", "6 x 330 ml" (which really is 1980 ml), "1,5 L",
+"a family size box". The importer multiplies through multipacks and declines
+what it cannot read, leaving `packQuantity` null and keeping the raw text — a
+number with no unit is not a size.
+
+Nutrition is stored per 100 g on the product for future use. The only place it
+surfaces today is a Nutri-Score letter on the product card; there are no recipe
+or meal macros. Of the 926,000 US products, about 380,000 carry a Nutri-Score
+and 195,000 have a photo, so a product card showing neither is normal.
+
+### The dump is not the API
+
+They have different field names, and the difference is silent rather than loud.
+There is **no `image_small_url` in the export** — that field exists in OFF's API
+responses only. The dump carries a nested `images` object, and the URL is
+constructed from it (`buildImageUrl` in `off-row.ts`):
+
+```
+images.selected.front.<lang> = { rev: "4", ... }
+  -> https://images.openfoodfacts.org/images/products/{path}/front_{lang}.{rev}.200.jpg
+```
+
+`{path}` is the **raw** code split into groups of three — a 12-digit code lives
+under `041/196/010/184` — and *not* the normalized barcode, which would ask for
+`004/119/601/0184` and 404. Codes of eight digits or fewer are not split.
+
+This is worth knowing before mapping any further field: reading `image_small_url`
+was a real bug that broke nothing visibly. Every row parsed, every test passed
+against fixtures written to the API's shape, and a completed import of 925,530
+products contained exactly one image. Check a line of the real file first:
+
+```sh
+zcat data/off/openfoodfacts-products.jsonl.gz | head -1 | jq keys
+```
+
+### Attribution
+
+Product data comes from [Open Food Facts](https://world.openfoodfacts.org) and
+is used under the **Open Database License (ODbL) v1.0**. Individual product
+images are under the **Database Contents License (DbCL) v1.0**. Open Food Facts
+is a collaborative, free and open database made by contributors worldwide.
+
 ## Commands
 
 | Command | Does |
@@ -149,6 +287,8 @@ then re-enters its own.
 | `npm run prisma:migrate` | Create/apply a migration |
 | `npm run prisma:studio` | Browse the database |
 | `npm run seed` | Load units, categories and the ingredient catalog |
+| `npm run off:download -w packages/backend` | Fetch the Open Food Facts dump (monthly) |
+| `npm run off:import -w packages/backend -- --file <path>` | Load it into the global product catalog |
 | `npm run verify:tenancy -w packages/backend` | Prove household isolation against a real database |
 | `npm run smoke` | Walk the whole loop over HTTP against a running server |
 
@@ -171,6 +311,10 @@ forgotten:
 - Catalog models (units, ingredients) *read* the global rows plus the household's own, but
   *write* only to the household's own. The asymmetry is the point: without it, one
   household could edit or delete the seeded catalog that every household reads.
+- `Product` — the Open Food Facts mirror — is global with no `householdId` at all, and is
+  not filtered. Nothing in the extension stops a write to it; what stops one is that no
+  service and no endpoint performs one. Households own only their `ProductBinding` rows,
+  which *are* scoped.
 - A query that reaches a scoped model with no household context **throws** rather than
   running unfiltered. Crossing households requires an explicit `runUnscoped()`, which
   exists in exactly one place: authenticating someone before we know their household.
@@ -425,6 +569,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 | `/recipes/new`, `/recipes/:id/edit` | Write one by hand, or correct one already saved |
 | `/recipes/:id` | The recipe, with a serving scaler |
 | `/pantry` | On-hand totals and every individual lot, with expiry warnings |
+| `/pantry/barcodes` | What this household means by each barcode it has scanned |
 | `/plan` | The week grid; cook a meal from here, or undo one |
 | `/cook` | Both "what can I cook" tabs |
 | `/shopping` | Generate from the plan, tick off with prices, receive into the pantry |
@@ -493,10 +638,14 @@ Under construction. Built so far:
       against the running API, 51 checks
 - [x] [`ERD.md`](ERD.md) — the tables, the relationships, and which nullable columns are
       nullable on purpose
+- [x] Open Food Facts products — offline monthly mirror, barcode scan on pantry intake,
+      household-only bindings, `productId` carried through shopping onto lots and prices
 
 Not done yet, and worth knowing before you rely on it:
 
 - [ ] Recipe images — `Recipe.imagePath` exists in the schema; no upload endpoint or UI
 - [ ] PWA / offline read cache
+- [ ] Recipe and meal nutrition — per-100g values are stored on every product, but nothing
+      totals them; a Nutri-Score letter on the product card is all that surfaces today
 
 The full plan lives in `~/.claude/plans/help-me-spec-out-snuggly-hollerith.md`.
