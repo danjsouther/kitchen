@@ -111,6 +111,7 @@ model Household {
   cookSessions      CookSession[]
   stores            Store[]
   shoppingLists     ShoppingList[]
+  receiveSessions   ReceiveSession[]
   priceObservations PriceObservation[]
   productBindings   ProductBinding[]
 
@@ -474,30 +475,34 @@ model PantryPar {
 
 /// Append-only ledger. Cooking a recipe deducts a dozen ingredients at once;
 /// without an audit trail one mis-scaled cook silently corrupts the pantry with no
-/// way back. CookSession groups a deduction so it can be undone as a unit.
+/// way back. CookSession groups a deduction so it can be undone as a unit;
+/// ReceiveSession does the same for shopping put-away.
 model PantryTransaction {
-  id            Int      @id @default(autoincrement())
-  householdId   Int
-  pantryItemId  Int?
-  ingredientId  Int
+  id               Int      @id @default(autoincrement())
+  householdId      Int
+  pantryItemId     Int?
+  ingredientId     Int
   /// Signed: negative consumes, positive restocks.
-  delta         Decimal  @db.Decimal(12, 4)
-  unitId        Int
-  kind          TxKind
-  cookSessionId Int?
-  note          String?
-  createdById   Int
-  createdOn     DateTime @default(now())
+  delta            Decimal  @db.Decimal(12, 4)
+  unitId           Int
+  kind             TxKind
+  cookSessionId    Int?
+  receiveSessionId Int?
+  note             String?
+  createdById      Int
+  createdOn        DateTime @default(now())
 
-  household   Household    @relation(fields: [householdId], references: [id])
-  pantryItem  PantryItem?  @relation(fields: [pantryItemId], references: [id])
-  ingredient  Ingredient   @relation(fields: [ingredientId], references: [id])
-  unit        Unit         @relation(fields: [unitId], references: [id])
-  cookSession CookSession? @relation(fields: [cookSessionId], references: [id])
-  createdBy   User         @relation(fields: [createdById], references: [id])
+  household      Household       @relation(fields: [householdId], references: [id])
+  pantryItem     PantryItem?     @relation(fields: [pantryItemId], references: [id])
+  ingredient     Ingredient      @relation(fields: [ingredientId], references: [id])
+  unit           Unit            @relation(fields: [unitId], references: [id])
+  cookSession    CookSession?    @relation(fields: [cookSessionId], references: [id])
+  receiveSession ReceiveSession? @relation(fields: [receiveSessionId], references: [id])
+  createdBy      User            @relation(fields: [createdById], references: [id])
 
   @@index([householdId, ingredientId, createdOn])
   @@index([cookSessionId])
+  @@index([receiveSessionId])
   @@map("pantry_transaction")
 }
 
@@ -601,12 +606,35 @@ model ShoppingList {
   createdOn   DateTime   @default(now())
   completedOn DateTime?
 
-  household Household          @relation(fields: [householdId], references: [id])
-  store     Store?             @relation(fields: [storeId], references: [id])
-  items     ShoppingListItem[]
+  household       Household          @relation(fields: [householdId], references: [id])
+  store           Store?             @relation(fields: [storeId], references: [id])
+  items           ShoppingListItem[]
+  receiveSessions ReceiveSession[]
 
   @@index([householdId, status])
   @@map("shopping_list")
+}
+
+/// Groups every pantry lot and price observation created by one put-away, so a
+/// mistaken receive can be reversed as a unit — the shopping counterpart of
+/// CookSession.
+model ReceiveSession {
+  id             Int       @id @default(autoincrement())
+  householdId    Int
+  shoppingListId Int
+  receivedOn     DateTime  @default(now())
+  /// Set when the put-away was undone. Stops a second undo from reversing the
+  /// same purchase twice.
+  reversedOn     DateTime?
+
+  household         Household           @relation(fields: [householdId], references: [id])
+  shoppingList      ShoppingList        @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+  transactions      PantryTransaction[]
+  priceObservations PriceObservation[]
+
+  @@index([householdId, receivedOn])
+  @@index([shoppingListId])
+  @@map("receive_session")
 }
 
 /// Store, brand and price are all optional. An item with none of them is just a
@@ -650,27 +678,30 @@ model ShoppingListItem {
 /// Written when a shopping list is received. Powers estimatedPrice on future
 /// lists and a running total before you reach the register.
 model PriceObservation {
-  id           Int      @id @default(autoincrement())
-  householdId  Int
-  ingredientId Int
-  storeId      Int?
-  brand        String?
+  id               Int      @id @default(autoincrement())
+  householdId      Int
+  ingredientId     Int
+  storeId          Int?
+  brand            String?
   /// Which exact product this price was for, when known. A price for a barcode
   /// is a far better estimate than a price for "flour", so the next list
   /// prefers it when the same product is on it again.
-  productId    String?
-  quantity     Decimal  @db.Decimal(12, 4)
-  unitId       Int
-  price        Decimal  @db.Decimal(10, 2)
-  observedOn   DateTime @default(now())
+  productId        String?
+  quantity         Decimal  @db.Decimal(12, 4)
+  unitId           Int
+  price            Decimal  @db.Decimal(10, 2)
+  observedOn       DateTime @default(now())
+  receiveSessionId Int?
 
-  household  Household  @relation(fields: [householdId], references: [id])
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
-  store      Store?     @relation(fields: [storeId], references: [id])
-  unit       Unit       @relation(fields: [unitId], references: [id])
-  product    Product?   @relation(fields: [productId], references: [barcode])
+  household      Household       @relation(fields: [householdId], references: [id])
+  ingredient     Ingredient      @relation(fields: [ingredientId], references: [id])
+  store          Store?          @relation(fields: [storeId], references: [id])
+  unit           Unit            @relation(fields: [unitId], references: [id])
+  product        Product?        @relation(fields: [productId], references: [barcode])
+  receiveSession ReceiveSession? @relation(fields: [receiveSessionId], references: [id])
 
   @@index([householdId, ingredientId, observedOn])
   @@index([householdId, productId, observedOn])
+  @@index([receiveSessionId])
   @@map("price_observation")
 }

@@ -296,12 +296,29 @@ export class ApiService {
     return this.patch<M.ShoppingList>(`/shopping-lists/${listId}/items/${itemId}`, body);
   }
 
-  receiveList(listId: number, locationId: number) {
+  receiveList(
+    listId: number,
+    body: {
+      locationId: number;
+      items?: Array<{ itemId: number; locationId: number }>;
+    },
+  ) {
     return this.post<{
       listId: number;
+      receiveSessionId: number;
       stocked: unknown[];
       priced: number[];
       skipped: Array<{ itemId: number; reason: string }>;
-    }>(`/shopping-lists/${listId}/receive`, { locationId });
+    }>(`/shopping-lists/${listId}/receive`, body);
+  }
+
+  unreceiveList(listId: number) {
+    return this.delete<{
+      listId: number;
+      receiveSessionId: number | null;
+      restored: Array<{ lotId: number; by: string }>;
+      lostLots: Array<{ lotId: number; wouldRestore: string }>;
+      list: M.ShoppingList;
+    }>(`/shopping-lists/${listId}/receive`);
   }
 }

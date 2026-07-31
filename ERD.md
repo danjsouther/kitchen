@@ -18,7 +18,7 @@ deciding which group it belongs to and saying so there.
 
 | Kind | Tables | `householdId` | What the extension does |
 |---|---|---|---|
-| **Household-scoped** | `User`, `HouseholdAiConfig`, `Recipe`, `Tag`, `StorageLocation`, `PantryItem`, `PantryPar`, `PantryTransaction`, `PlannedMeal`, `CookSession`, `Store`, `ShoppingList`, `PriceObservation` | required | Every read and write is filtered to the caller's household; a `householdId` supplied by the caller is overwritten, not trusted |
+| **Household-scoped** | `User`, `HouseholdAiConfig`, `Recipe`, `Tag`, `StorageLocation`, `PantryItem`, `PantryPar`, `PantryTransaction`, `PlannedMeal`, `CookSession`, `Store`, `ShoppingList`, `ReceiveSession`, `PriceObservation` | required | Every read and write is filtered to the caller's household; a `householdId` supplied by the caller is overwritten, not trusted |
 | **Household-scoped** (cont.) | `ProductBinding` | required | as above |
 | **Shared catalog** | `Unit`, `Ingredient` | **nullable** | Reads see global rows (`NULL`) *plus* the household's own; writes only ever touch the household's own |
 | **Parent-scoped** | `Household`, `IngredientCategory`, `IngredientAlias`, `RecipeIngredient`, `RecipeStep`, `RecipeTag`, `StoreAisle`, `ShoppingListItem`, `Product` | none | Nothing to filter on. Services must reach these through a scoped parent rather than by id |
@@ -334,14 +334,18 @@ its sessions rather than erasing the pantry history they caused.
 erDiagram
   Household ||--o{ Store : "owns"
   Household ||--o{ ShoppingList : "owns"
+  Household ||--o{ ReceiveSession : "owns"
   Household ||--o{ PriceObservation : "owns"
   Store ||--o{ StoreAisle : "walk order"
   IngredientCategory ||--o{ StoreAisle : "positioned"
   Store |o--o{ ShoppingList : "for (optional)"
   ShoppingList ||--o{ ShoppingListItem : "lines"
+  ShoppingList ||--o{ ReceiveSession : "put-aways"
   Ingredient |o--o{ ShoppingListItem : "of (optional)"
   Unit |o--o{ ShoppingListItem : "in (optional)"
   Store |o--o{ ShoppingListItem : "override (optional)"
+  ReceiveSession ||--o{ PantryTransaction : "grouped by (nullable)"
+  ReceiveSession ||--o{ PriceObservation : "from (nullable)"
   Ingredient ||--o{ PriceObservation : "of"
   Store |o--o{ PriceObservation : "at (optional)"
 
@@ -357,6 +361,11 @@ erDiagram
     decimal actualPrice "nullable — entered at the till"
     boolean unconvertible "the line would not fold in with the rest"
     datetime checkedOn "nullable — ticked off"
+  }
+  ReceiveSession {
+    int id PK
+    datetime receivedOn
+    datetime reversedOn "nullable — set when put-away was undone"
   }
   PriceObservation {
     int id PK
@@ -377,8 +386,11 @@ piece weight. A pantry balance that could not be subtracted is a different
 thing, signalled by reporting nothing on hand rather than zero.
 
 `receive` is the loop closing: ticked items become `PantryItem` rows *and*
-`PriceObservation` rows in one transaction, which is what makes the next list's
-`estimatedPrice` better without anyone keeping a second set of books.
+`PriceObservation` rows in one transaction, grouped under a `ReceiveSession` so
+a mistaken put-away can be undone as a unit (the shopping counterpart of
+`CookSession`). A default location covers the basket; checked lines may override
+it. That is what makes the next list's `estimatedPrice` better without anyone
+keeping a second set of books.
 
 ## What disappears with its parent
 
@@ -396,7 +408,7 @@ still deletes your data.
 | `Recipe` | its `RecipeIngredient`, `RecipeStep`, `RecipeTag` rows |
 | `Tag` | its `RecipeTag` rows |
 | `Store` | its `StoreAisle` rows |
-| `ShoppingList` | its `ShoppingListItem` rows |
+| `ShoppingList` | its `ShoppingListItem` and `ReceiveSession` rows |
 
 **Set null**, where the child outlives the reference:
 
@@ -407,6 +419,7 @@ still deletes your data.
 | `Recipe` | `PlannedMeal.recipeId` |
 | `PlannedMeal` | `CookSession.plannedMealId` |
 | `CookSession` | `PantryTransaction.cookSessionId` |
+| `ReceiveSession` | `PantryTransaction.receiveSessionId`, `PriceObservation.receiveSessionId` |
 | `PantryItem` | `PantryTransaction.pantryItemId` |
 | `Ingredient` | `RecipeIngredient.ingredientId`, `ShoppingListItem.ingredientId` |
 | `Unit` | `Ingredient.defaultUnitId`, `RecipeIngredient.unitId`, `ShoppingListItem.unitId` |

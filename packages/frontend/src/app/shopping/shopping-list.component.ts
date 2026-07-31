@@ -71,7 +71,24 @@ import type {
           </mat-card>
         </div>
 
-        @if (l.status !== "ACTIVE") {
+        @if (l.status === "COMPLETED") {
+          <mat-card class="notice">
+            <mat-card-content class="notice-row">
+              <span>
+                This list has been put away. Undo to edit prices, ticks, or
+                where things went, then receive again.
+              </span>
+              <button
+                mat-flat-button
+                (click)="unreceive()"
+                [disabled]="busy()"
+              >
+                <mat-icon>undo</mat-icon>
+                Undo put-away
+              </button>
+            </mat-card-content>
+          </mat-card>
+        } @else if (l.status !== "ACTIVE") {
           <mat-card class="notice">
             <mat-card-content>
               This list is {{ l.status.toLowerCase() }} and can no longer be
@@ -124,6 +141,22 @@ import type {
                 }
               </div>
 
+              @if (l.status === "ACTIVE" && item.checkedOn) {
+                <mat-form-field appearance="outline" class="where">
+                  <mat-label>Where</mat-label>
+                  <mat-select
+                    [value]="itemLocation(item.id)"
+                    (valueChange)="setItemLocation(item.id, $event)"
+                  >
+                    @for (location of locations(); track location.id) {
+                      <mat-option [value]="location.id">{{
+                        location.name
+                      }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              }
+
               <mat-form-field appearance="outline" class="price">
                 <mat-label>Paid</mat-label>
                 <input
@@ -148,14 +181,15 @@ import type {
               <h2>Put the shopping away</h2>
               <p class="muted small">
                 Ticked items become pantry stock, and what you paid becomes
-                price history that prefills the next list.
+                price history that prefills the next list. Set a default below;
+                override on each ticked line when something goes elsewhere.
               </p>
               <div class="row">
                 <mat-form-field appearance="outline">
-                  <mat-label>Where it goes</mat-label>
+                  <mat-label>Default location</mat-label>
                   <mat-select
                     [value]="locationId()"
-                    (valueChange)="locationId.set($event)"
+                    (valueChange)="onDefaultLocation($event)"
                   >
                     @for (location of locations(); track location.id) {
                       <mat-option [value]="location.id">{{
@@ -168,7 +202,7 @@ import type {
                   mat-flat-button
                   (click)="receive()"
                   [disabled]="
-                    !locationId || l.totals.checkedItems === 0 || busy()
+                    !locationId() || l.totals.checkedItems === 0 || busy()
                   "
                 >
                   <mat-icon>inventory_2</mat-icon>
@@ -220,6 +254,7 @@ import type {
       gap: 0.75rem;
       align-items: center;
       padding-bottom: 0.5rem;
+      flex-wrap: wrap;
     }
     .what {
       flex: 1 1 auto;
@@ -234,7 +269,11 @@ import type {
     .price {
       width: 7rem;
     }
-    .price ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+    .where {
+      width: 9rem;
+    }
+    .price ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .where ::ng-deep .mat-mdc-form-field-subscript-wrapper {
       display: none;
     }
     .tiny {
@@ -248,6 +287,19 @@ import type {
     .notice {
       background: var(--mat-sys-surface-container-high);
       margin-bottom: 1rem;
+    }
+    .notice-row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
     }
   `,
 })
@@ -265,8 +317,14 @@ export class ShoppingListComponent {
   /** Prices typed but not yet committed, keyed by item. */
   readonly priceDraft = new Map<number, string>();
 
-  /** Where received stock goes. A one-off action control, not form data. */
+  /** Default put-away location. A one-off action control, not form data. */
   readonly locationId = signal<number | null>(null);
+
+  /**
+   * Per-item location overrides. Absent keys mean "use the default". Cleared
+   * when the default changes so lines that were only echoing it stay in sync.
+   */
+  private readonly itemLocations = signal<Map<number, number>>(new Map());
 
   constructor() {
     queueMicrotask(() => {
@@ -288,6 +346,24 @@ export class ShoppingListComponent {
     return amountWithUnit(quantity, unit);
   }
 
+  /** Resolved location for a checked line: override or default. */
+  itemLocation(itemId: number): number | null {
+    return this.itemLocations().get(itemId) ?? this.locationId();
+  }
+
+  setItemLocation(itemId: number, locationId: number): void {
+    const next = new Map(this.itemLocations());
+    if (locationId === this.locationId()) next.delete(itemId);
+    else next.set(itemId, locationId);
+    this.itemLocations.set(next);
+  }
+
+  onDefaultLocation(locationId: number): void {
+    this.locationId.set(locationId);
+    // Overrides that only matched the old default are already absent; leave
+    // explicit overrides alone so fridge milk stays fridge when default flips.
+  }
+
   toggle(item: ShoppingListItem, checked: boolean): void {
     this.patch(item.id, { checked });
   }
@@ -303,23 +379,64 @@ export class ShoppingListComponent {
   }
 
   receive(): void {
-    if (!this.locationId()) return;
+    const defaultLocation = this.locationId();
+    if (!defaultLocation) return;
     this.busy.set(true);
 
-    this.api.receiveList(Number(this.id()), this.locationId()!).subscribe({
+    const list = this.list();
+    const overrides: Array<{ itemId: number; locationId: number }> = [];
+    if (list) {
+      for (const item of list.items) {
+        if (!item.checkedOn) continue;
+        const override = this.itemLocations().get(item.id);
+        if (override !== undefined && override !== defaultLocation) {
+          overrides.push({ itemId: item.id, locationId: override });
+        }
+      }
+    }
+
+    this.api
+      .receiveList(Number(this.id()), {
+        locationId: defaultLocation,
+        items: overrides.length ? overrides : undefined,
+      })
+      .subscribe({
+        next: (result) => {
+          this.busy.set(false);
+          const skipped = result.skipped.length;
+          this.notify.success(
+            `Stocked ${result.stocked.length} item${result.stocked.length === 1 ? "" : "s"}` +
+              (skipped ? `, ${skipped} could not be stocked` : "") +
+              ".",
+          );
+          this.itemLocations.set(new Map());
+          this.load();
+        },
+        error: (error: unknown) => {
+          this.busy.set(false);
+          this.notify.error(error, "Could not receive that list.");
+        },
+      });
+  }
+
+  unreceive(): void {
+    this.busy.set(true);
+    this.api.unreceiveList(Number(this.id())).subscribe({
       next: (result) => {
         this.busy.set(false);
-        const skipped = result.skipped.length;
+        // Prefer the reopened list from the response so controls enable
+        // immediately without waiting on a second round-trip.
+        this.list.set(result.list);
+        const lost = result.lostLots.length;
         this.notify.success(
-          `Stocked ${result.stocked.length} item${result.stocked.length === 1 ? "" : "s"}` +
-            (skipped ? `, ${skipped} could not be stocked` : "") +
-            ".",
+          lost
+            ? `Put-away undone. ${lost} lot${lost === 1 ? " was" : "s were"} already used or discarded.`
+            : "Put-away undone. The list is open again.",
         );
-        this.load();
       },
       error: (error: unknown) => {
         this.busy.set(false);
-        this.notify.error(error, "Could not receive that list.");
+        this.notify.error(error, "Could not undo that put-away.");
       },
     });
   }

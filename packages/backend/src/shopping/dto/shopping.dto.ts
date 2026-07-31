@@ -191,10 +191,30 @@ export class UpdateListItemDto {
   note?: string;
 }
 
-export class ReceiveDto {
-  /** Where the shopping gets put away. */
+export class ReceiveItemLocationDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  itemId!: number;
+
   @Type(() => Number)
   @IsInt()
   @IsPositive()
   locationId!: number;
+}
+
+export class ReceiveDto {
+  /** Default location for checked lines that do not override it. */
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  locationId!: number;
+
+  /** Per-item location overrides. Lines omitted here use `locationId`. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => ReceiveItemLocationDto)
+  items?: ReceiveItemLocationDto[];
 }

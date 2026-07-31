@@ -132,6 +132,7 @@ interface Recipe {
 interface PantryLot {
   id: number;
   quantity: string;
+  locationId: number;
   unit: Unit;
   ingredient: { id: number; name: string };
 }
@@ -521,15 +522,33 @@ async function walk(stamp: number): Promise<void> {
   equal('two items are ticked', priced.totals.checkedItems, 2);
   equal('the total is exact, not a float', priced.totals.actual, '8.49');
 
+  const fridge = await api<{ id: number }>('POST', '/storage-locations', {
+    name: `Smoke Fridge ${stamp}`,
+  });
+
   const received = await api<{
     stocked: unknown[];
     priced: number[];
     skipped: { itemId: number; reason: string }[];
-  }>('POST', `/shopping-lists/${list.id}/receive`, { locationId: larder.id });
+    receiveSessionId: number;
+  }>('POST', `/shopping-lists/${list.id}/receive`, {
+    locationId: larder.id,
+    items: [{ itemId: eggItem!.id, locationId: fridge.id }],
+  });
 
   equal('both ticked items became pantry lots', received.stocked.length, 2);
   equal('and both were recorded as prices', received.priced.length, 2);
   equal('nothing was silently dropped', received.skipped.length, 0);
+
+  const lotsAfterReceive = await api<PantryLot[]>('GET', '/pantry');
+  const eggLot = lotsAfterReceive.find(
+    (lot) => lot.ingredient.id === egg.id && lot.locationId === fridge.id,
+  );
+  const carrotLot = lotsAfterReceive.find(
+    (lot) => lot.ingredient.id === carrot.id && lot.locationId === larder.id,
+  );
+  check('eggs went to the fridge override', eggLot !== undefined);
+  check('carrots went to the default larder', carrotLot !== undefined);
 
   const afterShopping = await api<Balance[]>('GET', '/pantry/balances');
   equal(
@@ -547,6 +566,38 @@ async function walk(stamp: number): Promise<void> {
     where: { ingredientId: { in: [egg.id, carrot.id] } },
   });
   check('price history was written', observations >= 2, `found ${observations}`);
+
+  const undone = await api<{
+    restored: unknown[];
+    lostLots: unknown[];
+    list: ShoppingList & { status: string };
+  }>('DELETE', `/shopping-lists/${list.id}/receive`);
+  equal('undo took both purchased lots back', undone.restored.length, 2);
+  equal('and nothing was already gone', undone.lostLots.length, 0);
+  equal('the list is open for editing again', undone.list.status, 'ACTIVE');
+
+  const afterUnreceive = await api<Balance[]>('GET', '/pantry/balances');
+  equal(
+    'eggs are back to the pre-receive balance',
+    afterUnreceive.find((b) => b.ingredientId === egg.id)?.total,
+    '6',
+  );
+  check(
+    'carrots are gone again',
+    afterUnreceive.find((b) => b.ingredientId === carrot.id) === undefined ||
+      afterUnreceive.find((b) => b.ingredientId === carrot.id)?.total === '0',
+  );
+
+  const observationsAfterUndo = await base.priceObservation.count({
+    where: { receiveSessionId: received.receiveSessionId },
+  });
+  equal('the receive session price rows were deleted', observationsAfterUndo, 0);
+
+  // Re-receive so the cook section still has the stock it expects.
+  await api('POST', `/shopping-lists/${list.id}/receive`, {
+    locationId: larder.id,
+    items: [{ itemId: eggItem!.id, locationId: fridge.id }],
+  });
 
   // -- Cooking ---------------------------------------------------------------
 

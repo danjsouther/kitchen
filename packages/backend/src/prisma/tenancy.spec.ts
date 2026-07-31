@@ -194,7 +194,7 @@ describe('model classification', () => {
       'Ingredient', 'IngredientAlias', 'Recipe', 'RecipeIngredient', 'RecipeStep',
       'Tag', 'RecipeTag', 'StorageLocation', 'PantryItem', 'PantryPar',
       'PantryTransaction', 'PlannedMeal', 'CookSession', 'Store', 'StoreAisle',
-      'ShoppingList', 'ShoppingListItem', 'PriceObservation',
+      'ShoppingList', 'ShoppingListItem', 'ReceiveSession', 'PriceObservation',
       'Product', 'ProductBinding',
     ];
     const classified = new Set([

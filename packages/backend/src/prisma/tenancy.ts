@@ -33,6 +33,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   'CookSession',
   'Store',
   'ShoppingList',
+  'ReceiveSession',
   'PriceObservation',
   'ProductBinding',
 ]);

@@ -55,6 +55,10 @@ const LIST_INCLUDE = {
       },
     },
   },
+  receiveSessions: {
+    orderBy: { receivedOn: 'desc' as const },
+    select: { id: true, receivedOn: true, reversedOn: true },
+  },
 };
 
 @Injectable()
@@ -295,18 +299,28 @@ export class ShoppingService {
    * This is what closes the loop — shopping updates the pantry *and* teaches the
    * next list what things cost, without anyone keeping a second set of books.
    *
+   * A default `locationId` covers the whole basket; individual checked lines may
+   * override it so milk can go in the fridge while pasta goes in the pantry.
+   * Everything is grouped under a ReceiveSession so a mistaken put-away can be
+   * undone as a unit.
+   *
    * Items with no quantity or unit cannot become a lot ("paper towels" is not an
    * amount of anything), so they are reported as skipped rather than guessed at.
    */
   async receive(listId: number, dto: ReceiveDto, userId: number) {
     const list = await this.requireOpenList(listId);
 
-    const location = await this.db.storageLocation.findFirst({
-      where: { id: dto.locationId },
+    const locationIds = new Set<number>([dto.locationId]);
+    for (const override of dto.items ?? []) locationIds.add(override.locationId);
+
+    const locations = await this.db.storageLocation.findMany({
+      where: { id: { in: [...locationIds] } },
       select: { id: true },
     });
-    if (!location) {
-      throw new BadRequestException(`Unknown storage location id: ${dto.locationId}.`);
+    if (locations.length !== locationIds.size) {
+      const known = new Set(locations.map((l) => l.id));
+      const missing = [...locationIds].find((id) => !known.has(id));
+      throw new BadRequestException(`Unknown storage location id: ${missing}.`);
     }
 
     const items = await this.db.shoppingListItem.findMany({
@@ -317,12 +331,31 @@ export class ShoppingService {
       throw new ConflictException('Nothing on that list is ticked off yet.');
     }
 
+    const checkedIds = new Set(items.map((item) => item.id));
+    const locationByItem = new Map<number, number>();
+    for (const override of dto.items ?? []) {
+      if (!checkedIds.has(override.itemId)) {
+        throw new BadRequestException(
+          `Item ${override.itemId} is not a checked line on list ${listId}.`,
+        );
+      }
+      locationByItem.set(override.itemId, override.locationId);
+    }
+
     const stocked: Array<{ itemId: number; pantryItemId: number }> = [];
     const skipped: Array<{ itemId: number; reason: string }> = [];
     const priced: number[] = [];
+    let receiveSessionId = 0;
 
     await this.db.$transaction(async (tx) => {
+      const session = await tx.receiveSession.create({
+        data: { shoppingListId: listId } as never,
+      });
+      receiveSessionId = session.id;
+
       for (const item of items) {
+        const locationId = locationByItem.get(item.id) ?? dto.locationId;
+
         if (!item.ingredient || item.quantity === null || item.unitId === null) {
           skipped.push({
             itemId: item.id,
@@ -338,7 +371,7 @@ export class ShoppingService {
           const lot = await tx.pantryItem.create({
             data: {
               ingredientId: item.ingredient.id,
-              locationId: dto.locationId,
+              locationId,
               quantity: item.quantity,
               unitId: item.unitId,
               brand: item.brand,
@@ -356,6 +389,7 @@ export class ShoppingService {
               delta: item.quantity.toString(),
               unitId: item.unitId,
               kind: TxKind.PURCHASE,
+              receiveSessionId: session.id,
               note: `From shopping list ${listId}`,
               createdById: userId,
             } as never,
@@ -380,6 +414,7 @@ export class ShoppingService {
                 quantity: item.quantity,
                 unitId: item.unitId,
                 price: item.actualPrice,
+                receiveSessionId: session.id,
               } as never,
             });
             priced.push(item.id);
@@ -393,7 +428,184 @@ export class ShoppingService {
       });
     });
 
-    return { listId, stocked, priced, skipped };
+    return { listId, receiveSessionId, stocked, priced, skipped };
+  }
+
+  /**
+   * Reverses a put-away: removes purchased quantities from surviving lots,
+   * deletes the price observations that receive wrote, stamps the session as
+   * reversed, and reopens the list.
+   *
+   * Mirror of cook undo. A lot that was discarded or partly cooked since receive
+   * cannot give back the full purchase — that shortfall is reported as
+   * `lostLots` rather than inventing stock. Price observations are deleted
+   * (they are not a ledger); leaving a mistaken price would poison the next
+   * list's estimates.
+   *
+   * Lists put away before ReceiveSession existed are recovered from the purchase
+   * ledger notes (`From shopping list N`) so they are not stuck sealed forever.
+   */
+  async unreceive(listId: number, userId: number) {
+    const list = await this.db.shoppingList.findFirst({
+      where: { id: listId },
+      select: { id: true, status: true },
+    });
+    if (!list) throw new NotFoundException(`No shopping list with id ${listId}.`);
+    if (list.status !== ListStatus.COMPLETED) {
+      throw new ConflictException('Only a completed list can have its put-away undone.');
+    }
+
+    const session = await this.db.receiveSession.findFirst({
+      where: { shoppingListId: listId, reversedOn: null },
+      orderBy: { receivedOn: 'desc' },
+      include: {
+        transactions: {
+          where: { kind: TxKind.PURCHASE },
+          select: {
+            id: true,
+            pantryItemId: true,
+            ingredientId: true,
+            delta: true,
+            unitId: true,
+          },
+        },
+      },
+    });
+
+    // Prefer the session's PURCHASE rows; fall back to the free-text note that
+    // every receive has always written, so lists sealed before ReceiveSession
+    // can still be reopened.
+    const purchases = session
+      ? session.transactions
+      : await this.db.pantryTransaction.findMany({
+          where: {
+            kind: TxKind.PURCHASE,
+            note: `From shopping list ${listId}`,
+          },
+          select: {
+            id: true,
+            pantryItemId: true,
+            ingredientId: true,
+            delta: true,
+            unitId: true,
+          },
+        });
+
+    if (!session && purchases.length === 0) {
+      // Nothing was stocked (everything skipped) but the list still closed —
+      // just reopen it.
+      await this.db.shoppingList.update({
+        where: { id: listId },
+        data: { status: ListStatus.ACTIVE, completedOn: null },
+      });
+      return {
+        listId,
+        receiveSessionId: null as number | null,
+        restored: [] as Array<{ lotId: number; by: string }>,
+        lostLots: [] as Array<{ lotId: number; wouldRestore: string }>,
+        list: await this.findOne(listId),
+      };
+    }
+
+    const lotIds = purchases
+      .map((entry) => entry.pantryItemId)
+      .filter((id): id is number => id !== null);
+    const survivingLots = await this.db.pantryItem.findMany({
+      where: { id: { in: lotIds } },
+      select: { id: true, quantity: true },
+    });
+    const quantityByLot = new Map(
+      survivingLots.map((lot) => [lot.id, new Decimal(lot.quantity.toString())]),
+    );
+
+    const restored: Array<{ lotId: number; by: string }> = [];
+    const lostLots: Array<{ lotId: number; wouldRestore: string }> = [];
+
+    await this.db.$transaction(async (tx) => {
+      for (const entry of purchases) {
+        const purchased = new Decimal(entry.delta);
+        if (purchased.lte(0)) continue;
+
+        if (entry.pantryItemId === null) {
+          lostLots.push({
+            lotId: -1,
+            wouldRestore: purchased.toString(),
+          });
+          continue;
+        }
+
+        const current = quantityByLot.get(entry.pantryItemId);
+        if (current === undefined) {
+          lostLots.push({
+            lotId: entry.pantryItemId,
+            wouldRestore: purchased.toString(),
+          });
+          continue;
+        }
+
+        // Take back as much of the purchase as is still on the lot. Anything
+        // already cooked or discarded is reported rather than invented.
+        const takeBack = Decimal.min(current, purchased);
+        const shortfall = purchased.minus(takeBack);
+        if (shortfall.gt(0)) {
+          lostLots.push({
+            lotId: entry.pantryItemId,
+            wouldRestore: shortfall.toString(),
+          });
+        }
+        if (takeBack.lte(0)) continue;
+
+        const nextQty = current.minus(takeBack);
+        quantityByLot.set(entry.pantryItemId, nextQty);
+
+        await tx.pantryItem.update({
+          where: { id: entry.pantryItemId },
+          data: { quantity: nextQty.toString() } as never,
+        });
+
+        await tx.pantryTransaction.create({
+          data: {
+            pantryItemId: entry.pantryItemId,
+            ingredientId: entry.ingredientId,
+            delta: takeBack.negated().toString(),
+            unitId: entry.unitId,
+            kind: TxKind.ADJUST,
+            // Deliberately not linked to the session: linking would make the
+            // reversal look like part of the receive it undoes.
+            note: session
+              ? `Undo of receive session ${session.id}`
+              : `Undo of shopping list ${listId}`,
+            createdById: userId,
+          } as never,
+        });
+
+        restored.push({ lotId: entry.pantryItemId, by: takeBack.negated().toString() });
+      }
+
+      if (session) {
+        await tx.priceObservation.deleteMany({
+          where: { receiveSessionId: session.id },
+        });
+
+        await tx.receiveSession.update({
+          where: { id: session.id },
+          data: { reversedOn: new Date() },
+        });
+      }
+
+      await tx.shoppingList.update({
+        where: { id: listId },
+        data: { status: ListStatus.ACTIVE, completedOn: null },
+      });
+    });
+
+    return {
+      listId,
+      receiveSessionId: session?.id ?? null,
+      restored,
+      lostLots,
+      list: await this.findOne(listId),
+    };
   }
 
   async archive(id: number) {

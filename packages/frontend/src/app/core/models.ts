@@ -438,6 +438,11 @@ export interface ShoppingList {
   completedOn: string | null;
   store: { id: number; name: string } | null;
   items: ShoppingListItem[];
+  receiveSessions: Array<{
+    id: number;
+    receivedOn: string;
+    reversedOn: string | null;
+  }>;
   totals: {
     projected: string;
     actual: string;

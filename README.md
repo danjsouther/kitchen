@@ -375,9 +375,14 @@ level, prefills prices from what was last paid, and sorts the result into
 store-walk order.
 
 `POST /shopping-lists/:id/receive` is what makes the next list better: ticked
-items become pantry lots *and* price observations in one transaction. Shopping
-updates the pantry and teaches the app what things cost, without anyone keeping a
-second set of books.
+items become pantry lots *and* price observations in one transaction, grouped
+under a `ReceiveSession`. A default storage location covers the basket; checked
+lines may override it so milk can go in the fridge while pasta goes in the
+pantry. `DELETE /shopping-lists/:id/receive` undoes a mistaken put-away the same
+way cook undo works — reverse the lots that still exist, delete the price
+observations, and reopen the list as `ACTIVE` so ticks, prices, and locations
+can be fixed before receiving again. Shopping updates the pantry and teaches the
+app what things cost, without anyone keeping a second set of books.
 
 The direction of each guess is deliberate, and differs by context:
 
@@ -583,7 +588,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 | `/pantry/barcodes` | Optional category overrides for products (consensus is the default) |
 | `/plan` | The week grid; cook a meal from here, or undo one |
 | `/cook` | Both "what can I cook" tabs |
-| `/shopping` | Generate from the plan, tick off with prices, receive into the pantry |
+| `/shopping` | Generate from the plan, tick off with prices, receive into the pantry (per-item location; undo put-away) |
 | `/settings` | Locations, stores, and (for an admin) the AI key |
 
 Two things the UI is careful about, because the backend went to the trouble of
@@ -627,7 +632,7 @@ Under construction. Built so far:
 - [x] Meal planner — week calendar, cook-and-deduct, reversible cook sessions
 - [x] Paste-and-parse import — line classification, unit/ingredient matching, fuzzy fallback
 - [x] "What can I cook" — deterministic pantry match, plus the BYOK Claude tab
-- [x] Shopping lists — generation from the plan, aisle order, price capture, receive-to-pantry
+- [x] Shopping lists — generation from the plan, aisle order, price capture, multi-location receive-to-pantry, undo put-away
 - [x] Angular frontend — auth, recipes, parse review, pantry, planner, cook, shopping
 - [x] Container build — backend and frontend images, `docker compose up` works from a
       clean clone, migrations and catalog seeding on boot

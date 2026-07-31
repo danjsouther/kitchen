@@ -4,6 +4,16 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Shopping put-away: multi-location + undo (2026-07-31)
+
+Receiving a shopping list now takes a default storage location plus optional
+per-item overrides, so one trip can put milk in the fridge and pasta in the
+pantry. Effects are grouped under a `ReceiveSession`;
+`DELETE /shopping-lists/:id/receive` undoes a mistaken put-away (reverse
+surviving lots, delete price observations, reopen the list as `ACTIVE`),
+mirroring cook undo. The shopping list screen offers **Undo put-away** on every
+completed list so a bad receive is fixable from the same place it happened.
+
 ### Changed — Product categories: consensus default + household override
 
 Effective ingredient category for a barcode is now **live ranked consensus**

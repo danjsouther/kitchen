@@ -126,6 +126,15 @@ export class ShoppingController {
     return this.shopping.receive(id, dto, userId);
   }
 
+  /** Reverse a put-away: take stock back off the shelf and reopen the list. */
+  @Delete(':id/receive')
+  unreceive(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') userId: number,
+  ) {
+    return this.shopping.unreceive(id, userId);
+  }
+
   @Delete(':id')
   archive(@Param('id', ParseIntPipe) id: number) {
     return this.shopping.archive(id);
