@@ -1,0 +1,42 @@
+# Line endings are decided here, by the repo, not by whoever happens to be
+# cloning it.
+#
+# The first commit was normalised to LF only because this machine's *system*
+# gitconfig sets core.autocrlf=true. That is a per-machine setting: a CI runner,
+# a Linux collaborator, or a fresh Git install without it would start committing
+# CRLF and every file would show up as entirely rewritten. This file makes the
+# behaviour a property of the project instead.
+#
+# text=auto  -> git decides text vs binary, and stores text as LF
+# eol=lf     -> check out as LF everywhere, Windows included
+#
+# LF in the working tree matters beyond tidiness: the shell scripts and
+# Dockerfiles here are read by Linux containers, where a trailing CR is a syntax
+# error rather than whitespace.
+* text=auto eol=lf
+
+# Explicit for the files where a stray CR actually breaks something rather than
+# just looking untidy.
+*.sh      text eol=lf
+*.bash    text eol=lf
+Dockerfile text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+
+# Generated and enormous: keep it out of diffs and out of language stats.
+package-lock.json -diff linguist-generated=true
+
+# Binaries — never touch these. Recipe images land under uploads/ (gitignored),
+# but the frontend's public/ folder can pick up icons and fonts.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.webp    binary
+*.avif    binary
+*.ico     binary
+*.pdf     binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.eot     binary
