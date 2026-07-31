@@ -109,11 +109,15 @@ import type { Recipe, RecipeIngredient } from "../core/models";
                       in the rendered text, giving "onion , finely chopped". The
                       Angular v22 migration reformatted this file and reintroduced
                       exactly that bug, which is why the pragma is here now.
+
+                      The preparation is appended only alongside a catalog name.
+                      rawText is the whole line as written — "2 cups of flour,
+                      sifted" — so adding it there gives ", sifted, sifted".
                     -->
                     <!-- prettier-ignore -->
                     <span
                       >{{ line.ingredient?.name ?? line.rawText
-                      }}@if (line.preparation) {<span class="muted">, {{ line.preparation }}</span>}@if (line.optional) {<span class="muted"> (optional)</span>}
+                      }}@if (line.ingredient && line.preparation) {<span class="muted">, {{ line.preparation }}</span>}@if (line.optional) {<span class="muted"> (optional)</span>}
                       @if (!line.ingredient) {
                         <mat-icon
                           class="tiny muted"

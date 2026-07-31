@@ -38,6 +38,10 @@ import type { RecipeSummary } from "../core/models";
             <mat-icon>content_paste</mat-icon>
             Paste a recipe
           </a>
+          <a mat-flat-button routerLink="/recipes/new">
+            <mat-icon>add</mat-icon>
+            New recipe
+          </a>
         </div>
       </div>
 
@@ -65,6 +69,7 @@ import type { RecipeSummary } from "../core/models";
             <a mat-flat-button routerLink="/recipes/import"
               >Paste your first one</a
             >
+            <a mat-button routerLink="/recipes/new">or write one out</a>
           }
         </div>
       }

@@ -69,6 +69,10 @@ assumed:
 - **`[formField]` owns `name`, `min`, `max`, `disabled`, `readonly` and
   `value`.** Setting any of them alongside it is a compile error (NG8022). Use
   schema rules instead. Static `value` on radio/checkbox is the one exception.
+- **`[formField]` needs a real form control host.** `<mat-checkbox [formField]>`
+  compiles and then throws **NG01914** the moment the template renders — the
+  build says nothing. Use a native `<input type="checkbox">` in a `<label>`.
+  `matInput` and `mat-select` are fine; they wrap real controls.
 - **A validator with nowhere to render is a silent failure.** Every rule needs a
   matching `<mat-error>`, or the form just refuses to submit with nothing on
   screen. Where the control is not a form field at all — the ingredient picker —
@@ -87,6 +91,13 @@ Angular Material is fully wired up for this: `ErrorStateTracker` accepts a
 ceremony. The ingredient picker is the clearest case, and keeping it out of a
 form is also what stopped Material writing an option *object* back into a
 string field, which crashed it twice.
+
+That is still not a reason to drop `displayWith` on a `mat-autocomplete`.
+Selecting an option makes Material write into the input element directly,
+whatever the value is bound to, so without one it writes `[object Object]`.
+This hid for a while because the `[value]` binding usually overwrote it on the
+next render — but only when the typed text differed from the chosen name. Type
+a name in full, pick it, and the object stays on screen.
 
 ## The rule the whole app rests on
 

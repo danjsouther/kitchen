@@ -29,6 +29,14 @@ export const routes: Routes = [
       import('./recipes/recipe-import.component').then((m) => m.RecipeImportComponent),
   },
   {
+    // Ahead of 'recipes/:id', which would otherwise match "new" and try to load
+    // a recipe by that id.
+    path: 'recipes/new',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./recipes/recipe-form.component').then((m) => m.RecipeFormComponent),
+  },
+  {
     path: 'recipes/:id',
     canActivate: [authGuard],
     loadComponent: () =>

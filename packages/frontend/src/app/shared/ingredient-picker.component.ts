@@ -3,6 +3,7 @@ import {
   Component,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from "@angular/core";
@@ -52,12 +53,21 @@ import type { Ingredient } from "../core/models";
       <mat-icon matSuffix>search</mat-icon>
 
       <!--
-        No displayWith and no ngModel: the input is bound to a plain signal, so
-        Material never writes an option object back into it. That write-back was
-        the source of two separate crashes when this was an ngModel field —
-        every .trim() in here was really operating on an Ingredient.
+        No ngModel: the input is bound to a string signal, so nothing can put an
+        Ingredient where this component expects text. Two separate crashes came
+        from that when it was an ngModel field — every .trim() in here was
+        really operating on an object.
+        displayWith is still needed, and is not the same thing. On selection
+        Material writes into the input element itself, and with no displayWith
+        it writes the option value — which put a literal "[object Object]" on
+        screen whenever the typed text already matched the chosen name exactly,
+        because then the [value] binding did not change and never overwrote it.
       -->
-      <mat-autocomplete #auto="matAutocomplete" (optionSelected)="onPick($event.option.value)">
+      <mat-autocomplete
+        #auto="matAutocomplete"
+        [displayWith]="display"
+        (optionSelected)="onPick($event.option.value)"
+      >
         @for (item of results(); track item.id) {
           <mat-option [value]="item">
             {{ item.name }}
@@ -98,16 +108,26 @@ export class IngredientPickerComponent {
   readonly label = input("Ingredient");
   readonly placeholder = input("Start typing…");
   readonly allowCreate = input(false);
+  /**
+   * What the box should show when the parent already knows the name.
+   *
+   * Needed by the recipe form, where a row is one of a list: removing a row in
+   * the middle hands this component to a different row, and a plain signal
+   * would leave the previous row's text sitting above the new row's amount.
+   */
+  readonly initialText = input("");
 
   readonly picked = output<Ingredient>();
   /** Emitted when the user asks for an ingredient that does not exist yet. */
   readonly createRequested = output<string>();
+  /** Every keystroke, so a parent can keep a free-typed name that never matched. */
+  readonly textChanged = output<string>();
 
   /** Sentinel for the "create this" row, so it is distinguishable from a real hit. */
   readonly CREATE = "__create__" as const;
 
-  /** What is in the box. A plain signal, so it is always a string. */
-  readonly text = signal("");
+  /** What is in the box. Always a string — never an Ingredient. */
+  readonly text = linkedSignal(() => this.initialText());
 
   readonly results = signal<Ingredient[]>([]);
   readonly loading = signal(false);
@@ -136,6 +156,22 @@ export class IngredientPickerComponent {
       });
   }
 
+  /**
+   * What Material should put in the box for a selected option.
+   *
+   * An arrow property so `this` survives being handed to the trigger. It is
+   * called with null on a cleared selection and with the create sentinel — both
+   * of which threw here before, hence the explicit cases rather than
+   * `value.name`.
+   */
+  readonly display = (value: Ingredient | string | null): string => {
+    if (!value) return "";
+    if (typeof value === "string") {
+      return value === this.CREATE ? this.text() : value;
+    }
+    return value.name;
+  };
+
   /** True when what was typed is not already an exact catalog name. */
   canCreate(): boolean {
     const typed = this.text().trim().toLowerCase();
@@ -145,6 +181,7 @@ export class IngredientPickerComponent {
 
   onType(value: string): void {
     this.text.set(value);
+    this.textChanged.emit(value);
     const query = value.trim();
     if (query.length < 2) {
       this.results.set([]);
@@ -164,10 +201,4 @@ export class IngredientPickerComponent {
     this.text.set(value.name);
     this.picked.emit(value);
   }
-
-  /** Lets a parent show the chosen name after a pick, or clear it after saving. */
-  setText(value: string): void {
-    this.text.set(value);
-  }
-
 }

@@ -143,6 +143,41 @@ export interface Recipe {
   originalServings?: number;
 }
 
+/**
+ * What the recipe endpoints accept, mirroring CreateRecipeDto on the backend.
+ *
+ * `rawText` is required on every line and never derived away, even when the
+ * line resolved to a catalog ingredient: it is the record of what was actually
+ * written, and the only thing left to show when a match later turns out wrong.
+ *
+ * Quantity is a string for the usual reason — it is a Decimal server-side.
+ */
+export interface RecipeIngredientWrite {
+  /** Absent means the line saves as plain text and sits out of pantry maths. */
+  ingredientId?: number;
+  rawText: string;
+  quantity?: string;
+  unitId?: number;
+  preparation?: string;
+  groupLabel?: string;
+  optional?: boolean;
+}
+
+export interface RecipeWrite {
+  title: string;
+  description?: string;
+  servings: number;
+  prepMinutes?: number;
+  cookMinutes?: number;
+  sourceUrl?: string;
+  sourceNote?: string;
+  notes?: string;
+  ingredients: RecipeIngredientWrite[];
+  steps: { text: string }[];
+  /** Matched by slug server-side, so casing does not fork a tag. */
+  tags?: { name: string }[];
+}
+
 export interface Paged<T> {
   total: number;
   limit: number;

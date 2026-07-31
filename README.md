@@ -385,9 +385,12 @@ Under construction. Built so far:
 
 Not done yet, and worth knowing before you rely on it:
 
-- [ ] **The remaining write screens.** There is no manual recipe form (`/recipes/new`), no
-      way to add a meal to the planner, and no store aisle editing. The endpoints exist and
-      are tested; the screens do not.
+- [ ] **The remaining write screens.** There is still no way to add a meal to the planner
+      and no store aisle editing. The endpoints exist and are tested; the screens do not.
+      (`/recipes/new` is done — a recipe can now be written out by hand as well as pasted.)
+- [ ] **Editing a saved recipe.** `PATCH /recipes/:id` exists and is tested, but nothing
+      calls it: `/recipes/new` only creates. A typo in a saved recipe currently means
+      writing it again.
 - [ ] **Clearing a physical value.** The catalog form can set a density or item weight but
       cannot unset one — the API treats an absent field as "leave alone", so there is no way
       to express "this genuinely has no density". Fixing it properly means the API accepting
