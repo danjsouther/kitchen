@@ -5,7 +5,14 @@ import {
   ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
-import { FormsModule } from "@angular/forms";
+import {
+  FormField,
+  form,
+  min,
+  required,
+  submit,
+} from "@angular/forms/signals";
+import { firstValueFrom } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatFormFieldModule } from "@angular/material/form-field";
@@ -22,8 +29,8 @@ import type { AiConfig } from "../core/models";
   selector: "app-ai-settings",
   imports: [
     DatePipe,
-    FormsModule,
-    MatButtonModule,
+    FormField,
+      MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
     MatIconModule,
@@ -77,8 +84,7 @@ import type { AiConfig } from "../core/models";
                 matInput
                 type="password"
                 autocomplete="off"
-                [(ngModel)]="apiKey"
-                name="apiKey"
+                [formField]="keyForm.apiKey"
                 placeholder="sk-ant-..."
               />
               <mat-hint>
@@ -90,7 +96,7 @@ import type { AiConfig } from "../core/models";
             <div class="row">
               <mat-form-field appearance="outline">
                 <mat-label>Model</mat-label>
-                <mat-select [(ngModel)]="model" name="model">
+                <mat-select [formField]="keyForm.model">
                   <mat-option value="claude-opus-5">Claude Opus 5</mat-option>
                   <mat-option value="claude-sonnet-5"
                     >Claude Sonnet 5</mat-option
@@ -103,7 +109,7 @@ import type { AiConfig } from "../core/models";
 
               <mat-form-field appearance="outline">
                 <mat-label>Effort</mat-label>
-                <mat-select [(ngModel)]="effort" name="effort">
+                <mat-select [formField]="keyForm.effort">
                   <mat-option value="low">Low — cheapest</mat-option>
                   <mat-option value="medium">Medium</mat-option>
                   <mat-option value="high">High</mat-option>
@@ -172,15 +178,42 @@ export class AiSettingsComponent {
   readonly busy = signal(false);
   readonly error = signal("");
 
-  apiKey = "";
-  model = "claude-opus-5";
-  effort = "medium";
+  /**
+   * The key is write-only by design: it is never read back from the server, so
+   * this model starts empty on every visit and an empty value on save means
+   * "leave the stored key alone" rather than "clear it".
+   */
+  private readonly keyModel = signal({
+    apiKey: "",
+    model: "claude-opus-5",
+    effort: "medium",
+  });
+
+  readonly keyForm = form(this.keyModel, (path) => {
+    required(path.model, { message: "Pick a model." });
+    required(path.effort, { message: "Pick an effort level." });
+  });
+
+  /** The first message worth showing, once the user has actually been there. */
+  firstError(state: {
+    touched: () => boolean;
+    errors: () => readonly { message?: string }[];
+  }): string | undefined {
+    if (!state.touched()) return undefined;
+    return state.errors().find((e) => e.message)?.message;
+  }
+
 
   constructor() {
     this.load();
   }
 
   save(): void {
+    // Gate on validity here rather than in a <form>: this submits from a
+    // button, so there is no submit event for FormRoot to intercept.
+    this.keyForm().markAsTouched();
+    if (this.keyForm().invalid()) return;
+
     this.busy.set(true);
     this.error.set("");
 
@@ -188,13 +221,13 @@ export class AiSettingsComponent {
       .saveAiConfig({
         // Only sent when the user actually typed one — an empty box means
         // "leave the stored key alone", not "clear it".
-        ...(this.apiKey.trim() ? { apiKey: this.apiKey.trim() } : {}),
-        model: this.model,
-        effort: this.effort,
+        ...(this.keyModel().apiKey.trim() ? { apiKey: this.keyModel().apiKey.trim() } : {}),
+        model: this.keyModel().model,
+        effort: this.keyModel().effort,
       })
       .subscribe({
         next: (config) => {
-          this.apiKey = "";
+          this.keyModel.update((m) => ({ ...m, apiKey: "" }));
           this.config.set(config);
           this.busy.set(false);
           this.notify.success("Saved.");
@@ -225,8 +258,7 @@ export class AiSettingsComponent {
     this.api.aiConfig().subscribe({
       next: (config) => {
         this.config.set(config);
-        this.model = config.model;
-        this.effort = config.effort;
+        this.keyModel.update((m) => ({ ...m, model: config.model, effort: config.effort }));
       },
       error: (error: unknown) =>
         this.notify.error(error, "Could not load the AI settings."),

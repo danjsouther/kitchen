@@ -4,7 +4,15 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
+import {
+  FormField,
+  FormRoot,
+  form,
+  minLength,
+  required,
+  submit,
+} from "@angular/forms/signals";
+import { firstValueFrom } from "rxjs";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -21,7 +29,8 @@ import type { StorageLocation, Store } from "../core/models";
 @Component({
   selector: "app-settings",
   imports: [
-    FormsModule,
+    FormField,
+    FormRoot,
     RouterLink,
     MatButtonModule,
     MatCardModule,
@@ -55,19 +64,16 @@ import type { StorageLocation, Store } from "../core/models";
               }
             </mat-list>
 
-            <div class="row">
+            <form [formRoot]="locationForm" (submit)="addLocation($event)" class="row">
               <mat-form-field appearance="outline" class="grow">
                 <mat-label>Add a place</mat-label>
-                <input matInput [(ngModel)]="newLocation" name="location" />
+                <input matInput [formField]="locationForm.name" />
+                @if (firstError(locationForm.name()); as message) {
+                  <mat-error>{{ message }}</mat-error>
+                }
               </mat-form-field>
-              <button
-                mat-stroked-button
-                (click)="addLocation()"
-                [disabled]="!newLocation.trim()"
-              >
-                Add
-              </button>
-            </div>
+              <button mat-stroked-button type="submit">Add</button>
+            </form>
           </mat-card-content>
         </mat-card>
 
@@ -90,19 +96,16 @@ import type { StorageLocation, Store } from "../core/models";
               }
             </mat-list>
 
-            <div class="row">
+            <form [formRoot]="storeForm" (submit)="addStore($event)" class="row">
               <mat-form-field appearance="outline" class="grow">
                 <mat-label>Add a store</mat-label>
-                <input matInput [(ngModel)]="newStore" name="store" />
+                <input matInput [formField]="storeForm.name" />
+                @if (firstError(storeForm.name()); as message) {
+                  <mat-error>{{ message }}</mat-error>
+                }
               </mat-form-field>
-              <button
-                mat-stroked-button
-                (click)="addStore()"
-                [disabled]="!newStore.trim()"
-              >
-                Add
-              </button>
-            </div>
+              <button mat-stroked-button type="submit">Add</button>
+            </form>
           </mat-card-content>
         </mat-card>
 
@@ -176,33 +179,63 @@ export class SettingsComponent {
   readonly locations = signal<StorageLocation[]>([]);
   readonly stores = signal<Store[]>([]);
 
-  newLocation = "";
-  newStore = "";
+  // Two independent single-field forms rather than one: they submit to
+  // different endpoints and either can be filled without the other.
+  private readonly locationModel = signal({ name: "" });
+  readonly locationForm = form(this.locationModel, (path) => {
+    required(path.name, { message: "Give the place a name." });
+    minLength(path.name, 2, { message: "A little longer, please." });
+  });
+
+  private readonly storeModel = signal({ name: "" });
+  readonly storeForm = form(this.storeModel, (path) => {
+    required(path.name, { message: "Give the store a name." });
+    minLength(path.name, 2, { message: "A little longer, please." });
+  });
+
+  /** The first message worth showing, once the user has actually been there. */
+  firstError(state: {
+    touched: () => boolean;
+    errors: () => readonly { message?: string }[];
+  }): string | undefined {
+    if (!state.touched()) return undefined;
+    return state.errors().find((e) => e.message)?.message;
+  }
 
   constructor() {
     this.loadLocations();
     this.loadStores();
   }
 
-  addLocation(): void {
-    this.api.createLocation(this.newLocation.trim()).subscribe({
-      next: () => {
-        this.newLocation = "";
+  addLocation(event: Event): void {
+    event.preventDefault();
+    this.locationForm().markAsTouched();
+
+    void submit(this.locationForm, async () => {
+      try {
+        await firstValueFrom(this.api.createLocation(this.locationModel().name.trim()));
+        // reset() clears the value and the touched/dirty flags together, so the
+        // field does not come back already showing "required".
+        this.locationForm().reset();
         this.loadLocations();
-      },
-      error: (error: unknown) =>
-        this.notify.error(error, "Could not add that."),
+      } catch (error: unknown) {
+        this.notify.error(error, "Could not add that.");
+      }
     });
   }
 
-  addStore(): void {
-    this.api.createStore(this.newStore.trim()).subscribe({
-      next: () => {
-        this.newStore = "";
+  addStore(event: Event): void {
+    event.preventDefault();
+    this.storeForm().markAsTouched();
+
+    void submit(this.storeForm, async () => {
+      try {
+        await firstValueFrom(this.api.createStore(this.storeModel().name.trim()));
+        this.storeForm().reset();
         this.loadStores();
-      },
-      error: (error: unknown) =>
-        this.notify.error(error, "Could not add that store."),
+      } catch (error: unknown) {
+        this.notify.error(error, "Could not add that store.");
+      }
     });
   }
 

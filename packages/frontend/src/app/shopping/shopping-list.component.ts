@@ -5,7 +5,6 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatCheckboxModule } from "@angular/material/checkbox";
@@ -29,7 +28,6 @@ import type {
 @Component({
   selector: "app-shopping-list",
   imports: [
-    FormsModule,
     MatButtonModule,
     MatCardModule,
     MatCheckboxModule,
@@ -119,9 +117,8 @@ import type {
                   step="0.01"
                   min="0"
                   [disabled]="l.status !== 'ACTIVE'"
-                  [ngModel]="item.actualPrice"
-                  [ngModelOptions]="{ standalone: true }"
-                  (ngModelChange)="priceDraft.set(item.id, $event)"
+                  [value]="item.actualPrice"
+                  (input)="priceDraft.set(item.id, $any($event.target).value)"
                   (blur)="savePrice(item)"
                   [placeholder]="item.estimatedPrice ?? ''"
                 />
@@ -141,7 +138,10 @@ import type {
               <div class="row">
                 <mat-form-field appearance="outline">
                   <mat-label>Where it goes</mat-label>
-                  <mat-select [(ngModel)]="locationId" name="location">
+                  <mat-select
+                    [value]="locationId()"
+                    (valueChange)="locationId.set($event)"
+                  >
                     @for (location of locations(); track location.id) {
                       <mat-option [value]="location.id">{{
                         location.name
@@ -247,7 +247,8 @@ export class ShoppingListComponent {
   /** Prices typed but not yet committed, keyed by item. */
   readonly priceDraft = new Map<number, string>();
 
-  locationId: number | null = null;
+  /** Where received stock goes. A one-off action control, not form data. */
+  readonly locationId = signal<number | null>(null);
 
   constructor() {
     queueMicrotask(() => {
@@ -255,7 +256,7 @@ export class ShoppingListComponent {
       this.api.locations().subscribe({
         next: (locations) => {
           this.locations.set(locations);
-          this.locationId = locations[0]?.id ?? null;
+          this.locationId.set(locations[0]?.id ?? null);
         },
       });
     });
@@ -284,10 +285,10 @@ export class ShoppingListComponent {
   }
 
   receive(): void {
-    if (!this.locationId) return;
+    if (!this.locationId()) return;
     this.busy.set(true);
 
-    this.api.receiveList(Number(this.id()), this.locationId).subscribe({
+    this.api.receiveList(Number(this.id()), this.locationId()!).subscribe({
       next: (result) => {
         this.busy.set(false);
         const skipped = result.skipped.length;

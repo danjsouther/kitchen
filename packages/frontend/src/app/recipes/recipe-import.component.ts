@@ -5,7 +5,16 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
+import {
+  FormField,
+  form,
+  max,
+  min,
+  minLength,
+  required,
+  submit,
+} from "@angular/forms/signals";
+import { firstValueFrom } from "rxjs";
 import { Router } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -23,8 +32,8 @@ import type { ParseResult, ParsedLine } from "../core/models";
 @Component({
   selector: "app-recipe-import",
   imports: [
-    FormsModule,
-    MatButtonModule,
+    FormField,
+      MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
     MatIconModule,
@@ -50,15 +59,14 @@ import type { ParseResult, ParsedLine } from "../core/models";
           <textarea
             matInput
             rows="16"
-            [(ngModel)]="text"
-            name="text"
+            [formField]="pasteForm.text"
           ></textarea>
         </mat-form-field>
 
         <button
           mat-flat-button
           (click)="parse()"
-          [disabled]="busy() || !text.trim()"
+          [disabled]="busy() || pasteForm().invalid()"
         >
           <mat-icon>auto_fix_high</mat-icon>
           Read it
@@ -90,16 +98,14 @@ import type { ParseResult, ParsedLine } from "../core/models";
         <div class="row fields">
           <mat-form-field appearance="outline" class="grow">
             <mat-label>Title</mat-label>
-            <input matInput [(ngModel)]="title" name="title" />
+            <input matInput [formField]="draftForm.title" />
           </mat-form-field>
           <mat-form-field appearance="outline" class="servings">
             <mat-label>Serves</mat-label>
             <input
               matInput
               type="number"
-              min="1"
-              [(ngModel)]="servings"
-              name="servings"
+              [formField]="draftForm.servings"
             />
           </mat-form-field>
         </div>
@@ -314,18 +320,46 @@ export class RecipeImportComponent {
     () => this.lines().filter((line) => line.ingredientId === null).length,
   );
 
-  text = "";
-  title = "";
-  servings = 4;
+  /** The pasted blob, before anything has been made of it. */
+  private readonly pasteModel = signal({ text: "" });
+  readonly pasteForm = form(this.pasteModel, (path) => {
+    required(path.text, { message: "Paste a recipe first." });
+    minLength(path.text, 20, { message: "That looks too short to be a recipe." });
+  });
+
+  /** Title and servings, editable after the parse and before saving. */
+  private readonly draftModel = signal({ title: "", servings: 4 });
+  readonly draftForm = form(this.draftModel, (path) => {
+    required(path.title, { message: "A title is required." });
+    min(path.servings, 1, { message: "At least one serving." });
+    max(path.servings, 100, { message: "That is a lot of servings." });
+  });
+
+  /** The first message worth showing, once the user has actually been there. */
+  firstError(state: {
+    touched: () => boolean;
+    errors: () => readonly { message?: string }[];
+  }): string | undefined {
+    if (!state.touched()) return undefined;
+    return state.errors().find((e) => e.message)?.message;
+  }
+
 
   parse(): void {
+    // Gate on validity here rather than in a <form>: this submits from a
+    // button, so there is no submit event for FormRoot to intercept.
+    this.pasteForm().markAsTouched();
+    if (this.pasteForm().invalid()) return;
+
     this.busy.set(true);
-    this.api.parseRecipe(this.text).subscribe({
+    this.api.parseRecipe(this.pasteModel().text).subscribe({
       next: (result) => {
         this.parsed.set(result);
         this.lines.set(result.ingredients);
-        this.title = result.title ?? "";
-        this.servings = result.servings ?? 4;
+        this.draftModel.set({
+          title: result.title ?? "",
+          servings: result.servings ?? 4,
+        });
         this.busy.set(false);
       },
       error: (error: unknown) => {
@@ -375,11 +409,16 @@ export class RecipeImportComponent {
    * catalog ingredient are preserved exactly as pasted.
    */
   save(): void {
+    // Gate on validity here rather than in a <form>: this submits from a
+    // button, so there is no submit event for FormRoot to intercept.
+    this.draftForm().markAsTouched();
+    if (this.draftForm().invalid()) return;
+
     this.busy.set(true);
 
     const payload = {
-      title: this.title.trim() || "Untitled recipe",
-      servings: Number(this.servings) || 4,
+      title: this.draftModel().title.trim() || "Untitled recipe",
+      servings: Number(this.draftModel().servings) || 4,
       ingredients: this.lines().map((line) => ({
         ...(line.ingredientId !== null
           ? { ingredientId: line.ingredientId }

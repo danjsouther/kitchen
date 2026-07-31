@@ -4,7 +4,6 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -21,7 +20,6 @@ import type { RecipeSummary } from "../core/models";
 @Component({
   selector: "app-recipe-list",
   imports: [
-    FormsModule,
     RouterLink,
     MatButtonModule,
     MatCardModule,
@@ -47,8 +45,8 @@ import type { RecipeSummary } from "../core/models";
         <mat-label>Search</mat-label>
         <input
           matInput
-          [(ngModel)]="query"
-          (ngModelChange)="onSearch($event)"
+          [value]="query()"
+          (input)="onSearch($any($event.target).value)"
           placeholder="Title, description, or an ingredient"
         />
         <mat-icon matSuffix>search</mat-icon>
@@ -60,8 +58,8 @@ import type { RecipeSummary } from "../core/models";
 
       @if (recipes().length === 0 && !loading()) {
         <div class="empty muted">
-          @if (query) {
-            <p>Nothing matches “{{ query }}”.</p>
+          @if (query()) {
+            <p>Nothing matches “{{ query() }}”.</p>
           } @else {
             <p>No recipes yet.</p>
             <a mat-flat-button routerLink="/recipes/import"
@@ -145,7 +143,8 @@ export class RecipeListComponent {
   readonly recipes = signal<RecipeSummary[]>([]);
   readonly loading = signal(true);
 
-  query = "";
+  /** A filter, not form data. */
+  readonly query = signal("");
   private searchTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
@@ -154,6 +153,9 @@ export class RecipeListComponent {
 
   /** Debounced so typing does not fire a request per keystroke. */
   onSearch(value: string): void {
+    // Set explicitly: the input is a one-way [value] binding now, so nothing
+    // else writes this back the way [(ngModel)] used to.
+    this.query.set(value);
     clearTimeout(this.searchTimer);
     this.searchTimer = setTimeout(() => this.load(value), 250);
   }

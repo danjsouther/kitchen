@@ -4,8 +4,17 @@ import {
   signal,
   ChangeDetectionStrategy,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
+import {
+  FormField,
+  FormRoot,
+  email as emailRule,
+  form,
+  required,
+  submit,
+  validate,
+} from "@angular/forms/signals";
 import { ActivatedRoute, Router } from "@angular/router";
+import { firstValueFrom } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatFormFieldModule } from "@angular/material/form-field";
@@ -18,7 +27,8 @@ import { describeError } from "./notify.service";
 @Component({
   selector: "app-login",
   imports: [
-    FormsModule,
+    FormField,
+    FormRoot,
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
@@ -41,25 +51,26 @@ import { describeError } from "./notify.service";
             }}
           </p>
 
-          <form (ngSubmit)="submit()" class="stack">
+          <!--
+            Signal Forms: fields bind with [formField] and are NOT called here.
+            Calling a field (loginForm.email()) gives its state, which is how
+            the error messages below read errors() and touched().
+          -->
+          <form [formRoot]="loginForm" (submit)="onSubmit($event)" class="stack">
             @if (registering()) {
               <mat-form-field appearance="outline">
                 <mat-label>Your name</mat-label>
-                <input
-                  matInput
-                  name="displayName"
-                  [(ngModel)]="displayName"
-                  required
-                />
+                <input matInput [formField]="loginForm.displayName" />
+                @if (firstError(loginForm.displayName()); as message) {
+                  <mat-error>{{ message }}</mat-error>
+                }
               </mat-form-field>
               <mat-form-field appearance="outline">
                 <mat-label>Household name</mat-label>
-                <input
-                  matInput
-                  name="householdName"
-                  [(ngModel)]="householdName"
-                  required
-                />
+                <input matInput [formField]="loginForm.householdName" />
+                @if (firstError(loginForm.householdName()); as message) {
+                  <mat-error>{{ message }}</mat-error>
+                }
               </mat-form-field>
             }
 
@@ -68,11 +79,12 @@ import { describeError } from "./notify.service";
               <input
                 matInput
                 type="email"
-                name="email"
                 autocomplete="email"
-                [(ngModel)]="email"
-                required
+                [formField]="loginForm.email"
               />
+              @if (firstError(loginForm.email()); as message) {
+                <mat-error>{{ message }}</mat-error>
+              }
             </mat-form-field>
 
             <mat-form-field appearance="outline">
@@ -80,14 +92,14 @@ import { describeError } from "./notify.service";
               <input
                 matInput
                 type="password"
-                name="password"
                 [autocomplete]="
                   registering() ? 'new-password' : 'current-password'
                 "
-                [(ngModel)]="password"
-                required
+                [formField]="loginForm.password"
               />
-              @if (registering()) {
+              @if (firstError(loginForm.password()); as message) {
+                <mat-error>{{ message }}</mat-error>
+              } @else if (registering()) {
                 <mat-hint
                   >At least 12 characters. Length beats punctuation.</mat-hint
                 >
@@ -151,41 +163,100 @@ export class LoginComponent {
   readonly busy = signal(false);
   readonly error = signal("");
 
-  email = "";
-  password = "";
-  displayName = "";
-  householdName = "";
+  /**
+   * Empty strings, never null or undefined. Signal Forms derives the form's
+   * shape from this model, and a null initial value gives a field no type to
+   * work from.
+   */
+  private readonly model = signal({
+    displayName: "",
+    householdName: "",
+    email: "",
+    password: "",
+  });
+
+  readonly loginForm = form(this.model, (path) => {
+    required(path.email, { message: "An email address is required." });
+    emailRule(path.email, { message: "That does not look like an email address." });
+    required(path.password, { message: "A password is required." });
+
+    // Only when creating a household — the two name fields are not on screen
+    // when signing in, and requiring them would block a valid login.
+    required(path.displayName, {
+      message: "Your name is required.",
+      when: () => this.registering(),
+    });
+    required(path.householdName, {
+      message: "A household name is required.",
+      when: () => this.registering(),
+    });
+
+    // Length is checked on the way in, not on the way back: an existing
+    // account may predate this rule, and failing its login here would lock the
+    // user out of their own data over a rule they cannot satisfy at that
+    // screen. `when` is only available on required(), hence validate().
+    validate(path.password, ({ value }) => {
+      if (!this.registering()) return undefined;
+      if (value().length >= 12) return undefined;
+      return {
+        kind: "tooShort",
+        message: "At least 12 characters. Length beats punctuation.",
+      };
+    });
+  });
 
   toggle(): void {
     this.registering.update((value) => !value);
     this.error.set("");
   }
 
-  submit(): void {
+  /** The first message worth showing, once the user has actually been there. */
+  firstError(state: { touched: () => boolean; errors: () => readonly { message?: string }[] }):
+    | string
+    | undefined {
+    if (!state.touched()) return undefined;
+    return state.errors().find((e) => e.message)?.message;
+  }
+
+  onSubmit(event: Event): void {
+    // Native `submit`, not `ngSubmit`: ngSubmit is an NgForm output from
+    // FormsModule, which Signal Forms replaces. Left as (ngSubmit) it binds a
+    // custom event that never fires, and the button silently does nothing —
+    // which is exactly what it did until a browser check caught it.
+    event.preventDefault();
     if (this.busy()) return;
-    this.busy.set(true);
     this.error.set("");
 
-    const request = this.registering()
-      ? this.auth.register({
-          email: this.email,
-          password: this.password,
-          displayName: this.displayName,
-          householdName: this.householdName,
-        })
-      : this.auth.login(this.email, this.password);
+    // markAsTouched() first, explicitly. submit() runs the action only when the
+    // form is valid, but in this version it does NOT mark fields touched on the
+    // way — so a blank submit would silently do nothing, with no message,
+    // because the errors below only show once a field has been touched.
+    // Verified in a browser: without this the field is ng-invalid ng-untouched.
+    this.loginForm().markAsTouched();
 
-    request.subscribe({
-      next: () => {
+    void submit(this.loginForm, async () => {
+      this.busy.set(true);
+      const value = this.model();
+
+      try {
+        await firstValueFrom(
+          this.registering()
+            ? this.auth.register({
+                email: value.email,
+                password: value.password,
+                displayName: value.displayName,
+                householdName: value.householdName,
+              })
+            : this.auth.login(value.email, value.password),
+        );
+
         // Land back where they were headed before the guard intervened.
-        const next =
-          this.route.snapshot.queryParamMap.get("next") ?? "/recipes";
-        void this.router.navigateByUrl(next);
-      },
-      error: (error: unknown) => {
+        const next = this.route.snapshot.queryParamMap.get("next") ?? "/recipes";
+        await this.router.navigateByUrl(next);
+      } catch (error: unknown) {
         this.busy.set(false);
         this.error.set(describeError(error, "Could not sign in."));
-      },
+      }
     });
   }
 }

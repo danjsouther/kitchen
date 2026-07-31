@@ -5,7 +5,14 @@ import {
   ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
-import { FormsModule } from "@angular/forms";
+import {
+  FormField,
+  form,
+  validate,
+  required,
+  submit,
+} from "@angular/forms/signals";
+import { firstValueFrom } from "rxjs";
 import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -30,8 +37,8 @@ import type {
   selector: "app-shopping",
   imports: [
     DatePipe,
-    FormsModule,
-    RouterLink,
+    FormField,
+      RouterLink,
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
@@ -58,16 +65,26 @@ import type {
           <div class="row">
             <mat-form-field appearance="outline">
               <mat-label>From</mat-label>
-              <input matInput type="date" [(ngModel)]="from" name="from" />
+              <input matInput type="date" [formField]="rangeForm.from" />
+              @if (firstError(rangeForm.from()); as message) {
+                <mat-error>{{ message }}</mat-error>
+              }
             </mat-form-field>
             <mat-form-field appearance="outline">
               <mat-label>To</mat-label>
-              <input matInput type="date" [(ngModel)]="to" name="to" />
+              <input matInput type="date" [formField]="rangeForm.to" />
+              <!--
+                Without this the backwards-range rule blocks generation with
+                nothing on screen: the button simply does nothing.
+              -->
+              @if (firstError(rangeForm.to()); as message) {
+                <mat-error>{{ message }}</mat-error>
+              }
             </mat-form-field>
             <mat-form-field appearance="outline" class="store">
               <mat-label>Store</mat-label>
-              <mat-select [(ngModel)]="storeId" name="store">
-                <mat-option [value]="null">Any</mat-option>
+              <mat-select [formField]="rangeForm.storeId">
+                <mat-option [value]="0">Any</mat-option>
                 @for (store of stores(); track store.id) {
                   <mat-option [value]="store.id">{{ store.name }}</mat-option>
                 }
@@ -234,9 +251,44 @@ export class ShoppingComponent {
   readonly proposal = signal<Proposal | null>(null);
   readonly busy = signal(false);
 
-  from = isoDate(new Date());
-  to = isoDate(addDays(new Date(), 6));
-  storeId: number | null = null;
+  /**
+   * The date range and store that drive list generation.
+   *
+   * storeId is 0 for "any store" rather than null: Signal Forms wants a
+   * non-null initial value, and 0 doubles as the sentinel the template binds
+   * its "Any" option to.
+   */
+  private readonly rangeModel = signal({
+    from: isoDate(new Date()),
+    to: isoDate(addDays(new Date(), 6)),
+    storeId: 0,
+  });
+
+  readonly rangeForm = form(this.rangeModel, (path) => {
+    required(path.from, { message: "Pick a start date." });
+    required(path.to, { message: "Pick an end date." });
+
+    // A backwards range silently produces an empty list, which reads as "you
+    // need nothing" rather than "these dates are the wrong way round".
+    validate(path.to, ({ value, valueOf }) => {
+      const from = valueOf(path.from);
+      if (!from || !value()) return undefined;
+      if (value() < from) {
+        return { kind: "backwards", message: "The end date is before the start." };
+      }
+      return undefined;
+    });
+  });
+
+  /** The first message worth showing, once the user has actually been there. */
+  firstError(state: {
+    touched: () => boolean;
+    errors: () => readonly { message?: string }[];
+  }): string | undefined {
+    if (!state.touched()) return undefined;
+    return state.errors().find((e) => e.message)?.message;
+  }
+
 
   constructor() {
     this.api.shoppingLists().subscribe({
@@ -253,12 +305,17 @@ export class ShoppingComponent {
 
   /** Previews without saving — a generated list is a guess about a week ahead. */
   preview(): void {
+    // Gate on validity here rather than in a <form>: this submits from a
+    // button, so there is no submit event for FormRoot to intercept.
+    this.rangeForm().markAsTouched();
+    if (this.rangeForm().invalid()) return;
+
     this.busy.set(true);
     this.api
       .generateList({
-        from: this.from,
-        to: this.to,
-        storeId: this.storeId ?? undefined,
+        from: this.rangeModel().from,
+        to: this.rangeModel().to,
+        storeId: this.rangeModel().storeId || undefined,
       })
       .subscribe({
         next: (proposal) => {
@@ -273,12 +330,17 @@ export class ShoppingComponent {
   }
 
   save(): void {
+    // Gate on validity here rather than in a <form>: this submits from a
+    // button, so there is no submit event for FormRoot to intercept.
+    this.rangeForm().markAsTouched();
+    if (this.rangeForm().invalid()) return;
+
     this.busy.set(true);
     this.api
       .createList({
-        from: this.from,
-        to: this.to,
-        storeId: this.storeId ?? undefined,
+        from: this.rangeModel().from,
+        to: this.rangeModel().to,
+        storeId: this.rangeModel().storeId || undefined,
       })
       .subscribe({
         next: (list) => void this.router.navigate(["/shopping", list.id]),

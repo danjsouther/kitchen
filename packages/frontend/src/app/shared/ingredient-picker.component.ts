@@ -6,7 +6,6 @@ import {
   output,
   signal,
 } from "@angular/core";
-import { FormsModule } from "@angular/forms";
 import { MatAutocompleteModule } from "@angular/material/autocomplete";
 import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
@@ -33,7 +32,6 @@ import type { Ingredient } from "../core/models";
   selector: "app-ingredient-picker",
   changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
-    FormsModule,
     MatAutocompleteModule,
     MatFormFieldModule,
     MatIconModule,
@@ -45,26 +43,21 @@ import type { Ingredient } from "../core/models";
       <mat-label>{{ label() }}</mat-label>
       <input
         matInput
-        [(ngModel)]="text"
-        [name]="'ingredient-' + label()"
+        [value]="text()"
         [matAutocomplete]="auto"
-        (ngModelChange)="onType($event)"
+        (input)="onType($any($event.target).value)"
         [placeholder]="placeholder()"
         autocomplete="off"
       />
       <mat-icon matSuffix>search</mat-icon>
 
       <!--
-        displayWith is required, not cosmetic: option values are Ingredient
-        objects, so without it Material writes the object itself back into the
-        model and the field reads "[object Object]" — and every later
-        this.text.trim() throws.
+        No displayWith and no ngModel: the input is bound to a plain signal, so
+        Material never writes an option object back into it. That write-back was
+        the source of two separate crashes when this was an ngModel field —
+        every .trim() in here was really operating on an Ingredient.
       -->
-      <mat-autocomplete
-        #auto="matAutocomplete"
-        [displayWith]="displayName"
-        (optionSelected)="onPick($event.option.value)"
-      >
+      <mat-autocomplete #auto="matAutocomplete" (optionSelected)="onPick($event.option.value)">
         @for (item of results(); track item.id) {
           <mat-option [value]="item">
             {{ item.name }}
@@ -83,7 +76,7 @@ import type { Ingredient } from "../core/models";
         @if (allowCreate() && canCreate()) {
           <mat-option [value]="CREATE">
             <mat-icon class="tiny">add</mat-icon>
-            Create “{{ typedText() }}”
+            Create “{{ text() }}”
           </mat-option>
         }
       </mat-autocomplete>
@@ -113,10 +106,11 @@ export class IngredientPickerComponent {
   /** Sentinel for the "create this" row, so it is distinguishable from a real hit. */
   readonly CREATE = "__create__" as const;
 
+  /** What is in the box. A plain signal, so it is always a string. */
+  readonly text = signal("");
+
   readonly results = signal<Ingredient[]>([]);
   readonly loading = signal(false);
-
-  text = "";
 
   private readonly typed = new Subject<string>();
 
@@ -142,36 +136,16 @@ export class IngredientPickerComponent {
       });
   }
 
-  /**
-   * Coerces whatever ngModel is currently holding into a string.
-   *
-   * The model is not always a string. Material's autocomplete writes the
-   * selected *option value* back through ngModel, so on selection this becomes
-   * an Ingredient object — and every `.trim()` in this component would throw.
-   * Both the reader and the change handler go through here for that reason.
-   */
-  private asText(value: unknown): string {
-    if (typeof value === "string") return value;
-    if (value == null) return "";
-    return (value as Ingredient).name ?? "";
-  }
-
-  /** What is in the box right now, whatever ngModel currently holds. */
-  typedText(): string {
-    return this.asText(this.text);
-  }
-
   /** True when what was typed is not already an exact catalog name. */
   canCreate(): boolean {
-    const typed = this.typedText().trim().toLowerCase();
+    const typed = this.text().trim().toLowerCase();
     if (typed.length < 2) return false;
     return !this.results().some((item) => item.name.toLowerCase() === typed);
   }
 
-  onType(value: unknown): void {
-    // Typed as unknown deliberately: ngModelChange fires with an Ingredient
-    // object on selection, not just with the string the user typed.
-    const query = this.asText(value).trim();
+  onType(value: string): void {
+    this.text.set(value);
+    const query = value.trim();
     if (query.length < 2) {
       this.results.set([]);
       return;
@@ -181,28 +155,19 @@ export class IngredientPickerComponent {
 
   onPick(value: Ingredient | typeof this.CREATE): void {
     if (value === this.CREATE) {
-      const name = this.typedText().trim();
+      const name = this.text().trim();
       // Leave the typed name in the box: the parent is about to create it, and
       // blanking the field here would make the screen look like nothing happened.
       this.createRequested.emit(name);
       return;
     }
-    this.text = value.name;
+    this.text.set(value.name);
     this.picked.emit(value);
   }
 
   /** Lets a parent show the chosen name after a pick, or clear it after saving. */
   setText(value: string): void {
-    this.text = value;
+    this.text.set(value);
   }
 
-  /**
-   * Must tolerate null: Material calls displayWith with the model's initial
-   * value, which is empty before anything is picked. It is also called as a
-   * bare function reference, so it cannot rely on `this`.
-   */
-  displayName(item: Ingredient | string | null | undefined): string {
-    if (item == null) return "";
-    return typeof item === "string" ? item : item.name;
-  }
 }
