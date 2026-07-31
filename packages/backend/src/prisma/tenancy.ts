@@ -34,6 +34,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   'Store',
   'ShoppingList',
   'PriceObservation',
+  'ProductBinding',
 ]);
 
 /**
@@ -51,6 +52,13 @@ export const SHARED_CATALOG_MODELS = new Set(['Unit', 'Ingredient']);
  * the parent through the scoped client first and derive the child from it, rather
  * than querying children by id directly. `IngredientCategory` and `Household` are
  * here because they are genuinely not household-scoped.
+ *
+ * `Product` is the third of that kind, and the one to be careful about. It is the
+ * Open Food Facts mirror: global, shared by every household, and owned by the
+ * import CLI. Being in this set means the extension does not filter it, which is
+ * correct for reads — but it also means nothing here stops a write. What stops a
+ * write is that no service and no endpoint performs one; `ProductsService` reads
+ * `product` and writes only `productBinding`, which is tenant-scoped above.
  */
 export const PARENT_SCOPED_MODELS = new Set([
   'Household',
@@ -61,6 +69,7 @@ export const PARENT_SCOPED_MODELS = new Set([
   'RecipeTag',
   'StoreAisle',
   'ShoppingListItem',
+  'Product',
 ]);
 
 /** Read operations whose `args.where` selects the rows returned. */

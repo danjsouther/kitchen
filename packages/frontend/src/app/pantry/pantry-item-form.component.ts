@@ -16,18 +16,22 @@ import {
   submit,
   validate,
 } from "@angular/forms/signals";
+import { UpperCasePipe } from "@angular/common";
 import { firstValueFrom } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
+import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatSelectModule } from "@angular/material/select";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { BarcodeScanComponent } from "../shared/barcode-scan.component";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
 import type {
+  BarcodeLookup,
   Ingredient,
   PantryItemWrite,
   PantryLot,
@@ -46,6 +50,8 @@ import type {
   selector: "app-pantry-item-form",
   changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
+    UpperCasePipe,
+    BarcodeScanComponent,
     FormField,
     FormRoot,
     IngredientPickerComponent,
@@ -54,6 +60,7 @@ import type {
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatProgressBarModule,
     MatSelectModule,
   ],
   template: `
@@ -63,10 +70,89 @@ import type {
 
         @if (lot(); as existing) {
           <p class="muted small">{{ existing.ingredient.name }}</p>
+          @if (existing.product; as product) {
+            <p class="muted small">{{ product.name }} · {{ product.barcode }}</p>
+          }
         } @else {
+          <app-barcode-scan
+            label="Barcode"
+            hint="Optional. Scanning fills the rest in."
+            (scanned)="onScanned($event)"
+          />
+
+          @if (lookingUp()) {
+            <mat-progress-bar mode="indeterminate" />
+          }
+
+          @if (scan(); as result) {
+            @if (result.product; as product) {
+              <div class="product">
+                @if (product.imageSmallUrl) {
+                  <img [src]="product.imageSmallUrl" [alt]="product.name" />
+                }
+                <div class="grow">
+                  <strong>{{ product.name }}</strong>
+                  @if (product.brands) {
+                    <span class="muted"> · {{ product.brands }}</span>
+                  }
+                  <div class="muted small">
+                    {{ product.quantityRaw || "size unknown" }} · {{ product.barcode }}
+                    @if (product.nutriscoreGrade) {
+                      <span class="grade">Nutri-Score {{ product.nutriscoreGrade | uppercase }}</span>
+                    }
+                  </div>
+
+                  @if (result.binding; as binding) {
+                    <div class="small ok-text">
+                      <mat-icon class="tiny">link</mat-icon>
+                      Stored as {{ binding.ingredient.name }}
+                    </div>
+                  } @else {
+                    <!--
+                      A known pack that this household has never said the
+                      meaning of. Binding is a deliberate act: getting it wrong
+                      writes the wrong ingredient onto every future scan of this
+                      barcode, so nothing is linked without a click.
+                    -->
+                    <div class="small">
+                      <mat-icon class="tiny">help_outline</mat-icon>
+                      Not linked to an ingredient yet — pick one below and it
+                      will be remembered.
+                    </div>
+                    @if (result.suggestedIngredients.length) {
+                      <div class="suggestions">
+                        @for (item of result.suggestedIngredients; track item.id) {
+                          <button
+                            mat-stroked-button
+                            type="button"
+                            class="chip"
+                            (click)="bindTo(item)"
+                          >
+                            {{ item.name }}
+                          </button>
+                        }
+                      </div>
+                    }
+                  }
+                </div>
+              </div>
+            } @else {
+              <!--
+                Not an error. Plenty of store-brand goods are simply not in Open
+                Food Facts, and the answer is the manual flow that was always
+                there — so this says so plainly and gets out of the way.
+              -->
+              <p class="muted small">
+                Barcode {{ result.barcode }} is not in the catalog. Fill the rest
+                in by hand and it will still be saved against the code.
+              </p>
+            }
+          }
+
           <app-ingredient-picker
             label="What is it"
             [allowCreate]="true"
+            [initialText]="pickerText()"
             (picked)="onPicked($event)"
             (createRequested)="onCreate($event)"
           />
@@ -164,6 +250,26 @@ import type {
     }
     .actions { display: flex; gap: .5rem; align-items: center; margin-top: .5rem; }
     .picker-error { margin: -.5rem 0 .5rem; }
+    .product {
+      display: flex;
+      gap: .75rem;
+      align-items: flex-start;
+      padding: .6rem;
+      margin-bottom: .75rem;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 8px;
+    }
+    .product img { width: 3.5rem; height: 3.5rem; object-fit: contain; }
+    .tiny { font-size: 1rem; width: 1rem; height: 1rem; vertical-align: middle; }
+    .grade {
+      margin-left: .5rem;
+      padding: 0 .35rem;
+      border-radius: 4px;
+      border: 1px solid var(--mat-sys-outline-variant);
+    }
+    .suggestions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
+    .chip { --mat-button-outlined-container-height: 1.9rem; font-size: .8rem; }
+    .ok-text { color: var(--mat-sys-primary); }
   `,
 })
 export class PantryItemFormComponent {
@@ -180,6 +286,19 @@ export class PantryItemFormComponent {
 
   readonly busy = signal(false);
   readonly error = signal("");
+
+  /** The last barcode lookup, or null when nothing has been scanned. */
+  readonly scan = signal<BarcodeLookup | null>(null);
+  readonly lookingUp = signal(false);
+
+  /**
+   * What the ingredient picker should show.
+   *
+   * Set from a binding so a scan visibly fills the field in, and cleared on a
+   * new scan. It is an input to the picker rather than a two-way binding: the
+   * picker owns its own text after that, so typing over it is not fought.
+   */
+  readonly pickerText = signal("");
 
   /**
    * The whole form model, derived from the `lot` input but freely editable.
@@ -268,6 +387,70 @@ export class PantryItemFormComponent {
     return state.errors().find((e) => e.message)?.message;
   }
 
+  /**
+   * Looks a scanned barcode up and fills in whatever it can.
+   *
+   * Three outcomes, all ordinary — see `BarcodeLookup`. Note what does *not*
+   * happen on the unbound path: nothing is linked automatically, however good
+   * the suggestion looks. A wrong binding is written once and then silently
+   * applied to every future scan of that barcode.
+   */
+  onScanned(code: string): void {
+    this.lookingUp.set(true);
+    this.error.set("");
+
+    this.api.lookupBarcode(code).subscribe({
+      next: (result) => {
+        this.lookingUp.set(false);
+        this.scan.set(result);
+
+        if (result.binding) {
+          this.applyIngredient(result.binding.ingredient);
+        } else {
+          // A new scan supersedes whatever the last one filled in, rather than
+          // leaving the previous product's ingredient under the new barcode.
+          this.pickerText.set("");
+          this.model.update((m) => ({ ...m, ingredientId: 0 }));
+        }
+      },
+      error: (error: unknown) => {
+        this.lookingUp.set(false);
+        this.scan.set(null);
+        this.notify.error(error, "Could not look that barcode up.");
+      },
+    });
+  }
+
+  /** Links the scanned barcode to an ingredient for this household, for good. */
+  bindTo(item: Ingredient): void {
+    const barcode = this.scan()?.barcode;
+    if (!barcode || this.busy()) return;
+
+    this.busy.set(true);
+    this.api.bindProduct(barcode, item.id).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.scan.set(result);
+        this.applyIngredient(item);
+        this.notify.success(`${result.product?.name ?? "That barcode"} is now ${item.name}.`);
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not link that barcode.");
+      },
+    });
+  }
+
+  /** Fills the ingredient in, and a default unit with it where one is known. */
+  private applyIngredient(item: { id: number; name: string; defaultUnitId?: number | null }): void {
+    this.pickerText.set(item.name);
+    this.model.update((m) => ({
+      ...m,
+      ingredientId: item.id,
+      unitId: m.unitId === 0 && item.defaultUnitId ? item.defaultUnitId : m.unitId,
+    }));
+  }
+
   onPicked(item: Ingredient): void {
     this.model.update((m) => ({
       ...m,
@@ -276,6 +459,12 @@ export class PantryItemFormComponent {
       unitId: m.unitId === 0 && item.defaultUnitId ? item.defaultUnitId : m.unitId,
     }));
     this.error.set("");
+
+    // Choosing an ingredient while an unbound scan is on screen is the user
+    // answering "what is this barcode", so it is recorded — that is the whole
+    // point of scanning. It is still an explicit choice, not an inference.
+    const scan = this.scan();
+    if (scan?.product && !scan.binding) this.bindTo(item);
   }
 
   onCreate(name: string): void {
@@ -318,6 +507,11 @@ export class PantryItemFormComponent {
         locationId: value.locationId,
       };
       if (value.brand.trim()) body.brand = value.brand.trim();
+
+      // Attached even when the barcode was not in the mirror — the server
+      // rejects an unknown one, so this only ever carries a code that resolved.
+      const scanned = this.scan();
+      if (!existing && scanned?.product) body.productId = scanned.barcode;
 
       // An empty date means "leave it to the shelf life" when adding, but means
       // "clear it" when editing — hence null rather than simply omitting.

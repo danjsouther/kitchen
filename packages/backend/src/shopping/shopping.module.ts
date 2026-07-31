@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ProductsModule } from '../products/products.module';
 import { SuggestionsModule } from '../suggestions/suggestions.module';
 import { ShoppingController, StoresController } from './shopping.controller';
 import { ShoppingService } from './shopping.service';
@@ -11,7 +12,7 @@ import { StoresService } from './stores.service';
  * the pantry and records what things cost, so the next list is better informed.
  */
 @Module({
-  imports: [SuggestionsModule],
+  imports: [SuggestionsModule, ProductsModule],
   controllers: [StoresController, ShoppingController],
   providers: [ShoppingService, StoresService],
   exports: [ShoppingService, StoresService],

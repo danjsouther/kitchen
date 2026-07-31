@@ -15,6 +15,7 @@ import { PantryModule } from './pantry/pantry.module';
 import { ParserModule } from './parser/parser.module';
 import { PlannerModule } from './planner/planner.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProductsModule } from './products/products.module';
 import { RecipesModule } from './recipes/recipes.module';
 import { ShoppingModule } from './shopping/shopping.module';
 import { SuggestionsModule } from './suggestions/suggestions.module';
@@ -36,6 +37,7 @@ import { SuggestionsModule } from './suggestions/suggestions.module';
     HouseholdsModule,
     SuggestionsModule,
     ShoppingModule,
+    ProductsModule,
   ],
   controllers: [HealthController],
   providers: [

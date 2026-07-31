@@ -155,6 +155,99 @@ would quietly move everyone's costs and data onto one credential.
   that local default only dodges a host port clash.
 - **`.gitattributes` pins LF.** A CRLF `docker-entrypoint.sh` is a syntax error
   to the container's shell, not cosmetic.
+- **`prisma migrate dev` will try to drop the `pg_trgm` indexes. Delete those
+  lines from the generated SQL every time.** `ingredient_name_trgm_idx` and
+  `ingredient_alias_alias_trgm_idx` are created in raw SQL by the `add_pg_trgm`
+  migration, because Prisma cannot express `gin_trgm_ops` — so it reads them as
+  drift and proposes `DROP INDEX` in every subsequent migration. Letting it
+  through fails nothing and breaks nothing loudly: the parser's similarity
+  fallback still returns the right answers, just via a sequential scan with a
+  similarity computation per row. `20260731180117_add_off_product_catalog` has a
+  comment at the top saying this; if you edit an already-applied migration to
+  remove them, the recorded checksum needs updating too or `migrate` refuses to
+  run.
+
+## Products are global; only the binding is yours
+
+`Product` is the Open Food Facts mirror and is the one table that is global
+*without* being shared catalog. `Unit` and `Ingredient` have a nullable
+`householdId` so a row can be forked and corrected; `Product` has no
+`householdId` column at all, so there is nothing to fork to, and that is
+deliberate. A barcode identifies a physical pack — a household-private duplicate
+would defeat the only thing a barcode is good for.
+
+It is written by `npm run off:import` and by **no endpoint**. Nothing in
+`tenancy.ts` enforces that, because there is nothing to filter on; what enforces
+it is that no service performs a product write. Keep it that way. What a
+household owns is `ProductBinding`: which ingredient it means by a barcode.
+
+Two more things that are load-bearing and look incidental:
+
+- **Normalize barcodes through `src/off/barcode.ts`, both directions.** A US
+  pack scans as 12-digit UPC-A and OFF stores it as EAN-13 with a leading zero;
+  small packs scan as UPC-E. If the importer and the lookup ever disagree about
+  what "the same barcode" means, every affected scan misses a row that is
+  sitting right there.
+- **`packQuantity` and `packUnitId` are null together or not at all.** OFF's
+  pack size is free text; the importer declines what it cannot read and keeps
+  `quantityRaw`. A quantity with no unit is a number with no meaning — the same
+  rule as everywhere else here.
+
+Never bind a barcode automatically, however confident the suggestion. It is
+written once and then applied silently to every future scan of that code.
+
+### The import writes raw SQL on purpose
+
+`writeBatch` in `import-off.cli.ts` is one multi-row
+`INSERT ... ON CONFLICT DO UPDATE`. It looks like something to tidy into Prisma
+calls. It is not.
+
+It started as `prisma.$transaction(rows.map(row => prisma.product.upsert(...)))`,
+which is the obvious way to write it and died with `FATAL ERROR: Reached heap
+limit` a fifth of the way through the real 12.5 GB dump. Over the same 400,000
+lines: per-row upserts held a **3,023 MB** heap and 3,970 MB RSS; the bulk
+statement holds **359 MB** and a flat 945 MB, and runs twice as fast. A
+parse-only pass over those lines sits at 153 MB, which is what ruled out the
+parser and the stream — `readline` backpressure through gunzip was measured and
+works.
+
+Two consequences that are easy to lose if this is ever rewritten:
+
+- **Dedupe the batch by barcode first** (`dedupeByBarcode`). Postgres rejects a
+  multi-row upsert touching one key twice, and rejects the *entire statement*,
+  so a single duplicate discards 500 good rows. Duplicates are normal here —
+  `normalizeBarcode` maps UPC-A and EAN-13 forms of a product onto one key by
+  design, so two export lines genuinely collide.
+- **`packQuantity` binds as a string**, cast `::decimal` in SQL. Same rule as
+  everywhere: a Decimal must not pass through a JS number.
+
+When something is slow or fat, measure which half before changing it. Both times
+here the intuitive culprit — backpressure, then the parser — was innocent.
+
+### The JSONL dump is not the OFF API
+
+They have different field names, and the difference is invisible until you look
+at real output. `image_small_url` exists in API responses and **not in the
+dump**, which has a nested `images` object the URL must be built from
+(`buildImageUrl` in `off-row.ts`). Assuming the API shape failed silently: every
+row parsed, every test passed, and a completed import of 925,530 products
+contained exactly **one** image. Nothing errored — the field was simply always
+absent, so the column was always null and the product card never showed a
+picture.
+
+Two traps inside that construction:
+
+- **The image path uses the raw `code`, not the normalized barcode.** OFF derives
+  the directory by splitting the code as it stores it into groups of three, so a
+  12-digit code lives under `041/196/010/184`. Padding to EAN-13 first asks for
+  `004/119/601/0184`, which 404s. The normalization that makes *scanning* work
+  must not reach the image path.
+- Codes of 8 digits or fewer are not split at all.
+
+The wider lesson, which cost two bugs in one feature: **fixtures written from an
+API's documentation prove nothing about a dump.** Check a real line before
+trusting a field name — `zcat dump.jsonl.gz | head -1 | jq keys` — and confirm a
+constructed URL actually resolves.
 
 ## Verify by running it, not by building it
 

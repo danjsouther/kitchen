@@ -99,6 +99,36 @@ export class ApiService {
     return this.patch<M.Ingredient>(`/ingredients/${id}`, body);
   }
 
+  // -- Products ------------------------------------------------------------
+  //
+  // The Open Food Facts mirror is global and read-only, so there is no create,
+  // update or delete here. The only writes are on this household's bindings.
+
+  /** Everything a scan needs: the product, the binding, and suggestions. */
+  lookupBarcode(code: string) {
+    return this.get<M.BarcodeLookup>(`/products/by-barcode/${encodeURIComponent(code)}`);
+  }
+
+  searchProducts(q: string, limit = 20) {
+    return this.get<M.Product[]>('/products', { q, limit });
+  }
+
+  productBindings() {
+    return this.get<M.ProductBindingRow[]>('/products/bindings');
+  }
+
+  /** Points a barcode at an ingredient for this household. */
+  bindProduct(barcode: string, ingredientId: number) {
+    return this.put<M.BarcodeLookup>(
+      `/products/${encodeURIComponent(barcode)}/binding`,
+      { ingredientId },
+    );
+  }
+
+  unbindProduct(barcode: string) {
+    return this.delete<M.BarcodeLookup>(`/products/${encodeURIComponent(barcode)}/binding`);
+  }
+
   // -- Recipes -------------------------------------------------------------
 
   recipes(query: { q?: string; tag?: string; status?: string; limit?: number } = {}) {

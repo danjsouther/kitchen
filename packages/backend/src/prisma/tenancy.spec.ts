@@ -195,6 +195,7 @@ describe('model classification', () => {
       'Tag', 'RecipeTag', 'StorageLocation', 'PantryItem', 'PantryPar',
       'PantryTransaction', 'PlannedMeal', 'CookSession', 'Store', 'StoreAisle',
       'ShoppingList', 'ShoppingListItem', 'PriceObservation',
+      'Product', 'ProductBinding',
     ];
     const classified = new Set([
       ...TENANT_SCOPED_MODELS,
@@ -210,5 +211,27 @@ describe('model classification', () => {
     for (const model of ['Recipe', 'PantryItem', 'PlannedMeal', 'ShoppingList', 'HouseholdAiConfig']) {
       expect(TENANT_SCOPED_MODELS.has(model)).toBe(true);
     }
+  });
+
+  // The Open Food Facts mirror is shared by every household and owned by the
+  // import CLI. Putting it in either of the other two buckets would be a real
+  // bug: tenant-scoped would stamp a householdId onto a global row and hide the
+  // catalog from everyone, and shared-catalog would advertise a fork-and-edit
+  // path that must not exist for OFF data.
+  it('keeps Product global and never household-scoped', () => {
+    expect(TENANT_SCOPED_MODELS.has('Product')).toBe(false);
+    expect(SHARED_CATALOG_MODELS.has('Product')).toBe(false);
+    expect(PARENT_SCOPED_MODELS.has('Product')).toBe(true);
+  });
+
+  // The binding is the *only* tenant-scoped part of the product feature: which
+  // ingredient this household means by this barcode.
+  it('scopes ProductBinding to the household', () => {
+    expect(TENANT_SCOPED_MODELS.has('ProductBinding')).toBe(true);
+  });
+
+  it('does not filter Product reads', () => {
+    const args = { where: { barcode: '0123456789012' } };
+    expect(scopeArgs('Product', 'findFirst', args, HOUSEHOLD)).toEqual(args);
   });
 });

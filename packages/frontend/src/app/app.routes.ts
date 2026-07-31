@@ -65,6 +65,13 @@ export const routes: Routes = [
       import('./pantry/ingredients.component').then((m) => m.IngredientsComponent),
   },
   {
+    // Ahead of any future 'pantry/:id' for the same reason.
+    path: 'pantry/barcodes',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pantry/product-bindings.component').then((m) => m.ProductBindingsComponent),
+  },
+  {
     path: 'plan',
     canActivate: [authGuard],
     loadComponent: () => import('./plan/plan.component').then((m) => m.PlanComponent),

@@ -66,10 +66,22 @@ export class PantryQueryDto {
 }
 
 export class CreatePantryItemDto {
+  /**
+   * Optional when `productId` is sent and this household has a binding for it —
+   * the binding then says which ingredient the barcode means. Required in every
+   * other case, and the service says so rather than inventing one.
+   */
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @IsPositive()
-  ingredientId!: number;
+  ingredientId?: number;
+
+  /** A scanned barcode. Normalized server-side, so any scan format is accepted. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  productId?: string;
 
   @Type(() => Number)
   @IsInt()

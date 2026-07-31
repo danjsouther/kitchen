@@ -19,8 +19,9 @@ deciding which group it belongs to and saying so there.
 | Kind | Tables | `householdId` | What the extension does |
 |---|---|---|---|
 | **Household-scoped** | `User`, `HouseholdAiConfig`, `Recipe`, `Tag`, `StorageLocation`, `PantryItem`, `PantryPar`, `PantryTransaction`, `PlannedMeal`, `CookSession`, `Store`, `ShoppingList`, `PriceObservation` | required | Every read and write is filtered to the caller's household; a `householdId` supplied by the caller is overwritten, not trusted |
+| **Household-scoped** (cont.) | `ProductBinding` | required | as above |
 | **Shared catalog** | `Unit`, `Ingredient` | **nullable** | Reads see global rows (`NULL`) *plus* the household's own; writes only ever touch the household's own |
-| **Parent-scoped** | `Household`, `IngredientCategory`, `IngredientAlias`, `RecipeIngredient`, `RecipeStep`, `RecipeTag`, `StoreAisle`, `ShoppingListItem` | none | Nothing to filter on. Services must reach these through a scoped parent rather than by id |
+| **Parent-scoped** | `Household`, `IngredientCategory`, `IngredientAlias`, `RecipeIngredient`, `RecipeStep`, `RecipeTag`, `StoreAisle`, `ShoppingListItem`, `Product` | none | Nothing to filter on. Services must reach these through a scoped parent rather than by id |
 
 That nullable `householdId` on the catalog is the load-bearing trick. It is what
 lets one seeded ingredient list serve every household while still letting a
@@ -117,6 +118,74 @@ read as zero or as 1.0.
 `IngredientAlias` is what lets "scallions" find green onion. It is one of the
 four routes the parser tries, in descending order of trust: exact slug, alias,
 singularised slug, then `pg_trgm` similarity.
+
+## Products, and the one table that is global without being catalog
+
+```mermaid
+erDiagram
+  Product ||--o{ ProductBinding : "means (per household)"
+  Ingredient ||--o{ ProductBinding : "is"
+  Household ||--o{ ProductBinding : "owns"
+  Unit |o--o{ Product : "pack size in (optional)"
+  Product |o--o{ PantryItem : "stocked as (optional)"
+  Product |o--o{ ShoppingListItem : "listed as (optional)"
+  Product |o--o{ PriceObservation : "priced as (optional)"
+
+  Product {
+    string barcode PK "digits only, EAN-13 where possible"
+    string name
+    string brands "nullable — OFF's comma-separated list"
+    string quantityRaw "nullable — '5 lb (2.27 kg)' as written"
+    decimal packQuantity "nullable — null when the size would not parse"
+    int packUnitId FK "nullable — and null together with packQuantity"
+    string imageSmallUrl "nullable — built from OFF's images object, not a field"
+    json nutriments "per-100g values, OFF's own numbers"
+    string nutriscoreGrade "nullable — 'a'..'e', null where never computed"
+    datetime importedOn
+  }
+  ProductBinding {
+    int id PK
+    int householdId FK "required"
+    string productId FK "the barcode"
+    int ingredientId FK
+  }
+```
+
+`Product` is a mirror of Open Food Facts, and it is the only table in the schema
+that is global **without** being shared catalog. The distinction matters:
+
+- `Unit` and `Ingredient` have a **nullable** `householdId`, so a household can
+  fork a row and correct it for itself.
+- `Product` has **no `householdId` column at all**, so there is nothing to fork
+  *to*. It is written by `npm run off:import` and by no endpoint whatsoever.
+
+That is deliberate rather than an omission. A barcode identifies a physical
+pack; a household-private duplicate of one would break the single thing a
+barcode is good for, which is that everybody scanning that pack gets the same
+answer. Correcting OFF's data is a contribution to OFF, not a local edit.
+
+So what does a household own? Exactly one thing: `ProductBinding`, the line from
+a barcode to *its* ingredient. Two households can scan the same jar and
+reasonably mean different rows in their own catalogs, and that disagreement is
+the only tenant-scoped part of the feature.
+
+`imageSmallUrl` is **derived, not stored by OFF.** The export has no image URL
+field at all — only a nested `images` object the URL is built from, using the
+product's raw code for the directory path rather than the normalized barcode.
+About a fifth of products have a picture, so null is the common case.
+
+**`packQuantity` and `packUnitId` are null together, never one without the
+other.** OFF's `quantity` is free text typed by contributors — "345 g", "6 x
+330 ml", "a family size box" — and the importer multiplies through a multipack
+but declines anything it cannot read. A number with no unit is not a size, so
+neither is stored and `quantityRaw` keeps the original words. The usual rule:
+a value that cannot be computed is absent, not zero.
+
+`PantryItem.brand` survives alongside `productId` rather than being replaced by
+it. Most lots are typed in by hand and have no barcode at all, and a lot that
+does gets `brand` denormalized from the product on intake — so the pantry list,
+the shopping generator and the AI suggestions all keep reading one field and
+none of them has to learn what a barcode is.
 
 ## Recipes
 
@@ -330,6 +399,7 @@ still deletes your data.
 
 | Deleting | Nulls |
 |---|---|
+| `Product` | `PantryItem.productId`, `ShoppingListItem.productId`, `PriceObservation.productId` |
 | `Household` | `Ingredient.householdId`, `Unit.householdId` — **see the warning below** |
 | `Recipe` | `PlannedMeal.recipeId` |
 | `PlannedMeal` | `CookSession.plannedMealId` |
@@ -369,6 +439,9 @@ or a price refuses deletion for the same reason, and says so.
 | `Recipe(householdId, archivedOn)` | the collection hides archived rows by default |
 | `PlannedMeal(householdId, date)` | every planner read is a date range |
 | `IngredientAlias(slug)` | the parser's second matching route, hit once per pasted line |
+| `Product(name)` | product search is by name, over a table that can hold millions of rows |
+| `ProductBinding(householdId, productId)` unique | one meaning per barcode per household; a second would make "what is this" ambiguous |
+| `PriceObservation(householdId, productId, observedOn)` | prefilling a scanned line reads the newest price for one barcode |
 
 Uniqueness carries meaning too: `Ingredient(householdId, slug)` and
 `Unit(householdId, name)` are per-household rather than global, which is what
