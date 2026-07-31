@@ -79,11 +79,15 @@ export class ApiService {
     return this.get<M.IngredientCategory[]>('/ingredient-categories');
   }
 
-  searchIngredients(q: string, limit = 20) {
-    return this.get<M.Ingredient[]>('/ingredients', { q, limit });
+  searchIngredients(q: string, limit = 20, categoryId?: number) {
+    return this.get<M.Ingredient[]>('/ingredients', { q, limit, categoryId });
   }
 
-  createIngredient(body: { name: string }) {
+  ingredient(id: number) {
+    return this.get<M.Ingredient>(`/ingredients/${id}`);
+  }
+
+  createIngredient(body: M.IngredientWrite & { name: string }) {
     return this.post<M.Ingredient>('/ingredients', body);
   }
 
@@ -91,7 +95,7 @@ export class ApiService {
     return this.post<M.Ingredient>(`/ingredients/${id}/customize`);
   }
 
-  updateIngredient(id: number, body: Record<string, unknown>) {
+  updateIngredient(id: number, body: M.IngredientWrite) {
     return this.patch<M.Ingredient>(`/ingredients/${id}`, body);
   }
 
@@ -139,12 +143,16 @@ export class ApiService {
     return this.get<M.Balance[]>('/pantry/balances');
   }
 
-  addPantryItem(body: unknown) {
+  addPantryItem(body: M.PantryItemWrite & { ingredientId: number }) {
     return this.post<M.PantryLot>('/pantry', body);
   }
 
-  updatePantryItem(id: number, body: unknown) {
+  updatePantryItem(id: number, body: M.PantryItemWrite & { reason?: string }) {
     return this.patch<M.PantryLot>(`/pantry/${id}`, body);
+  }
+
+  pantryItem(id: number) {
+    return this.get<M.PantryLot>(`/pantry/${id}`);
   }
 
   discardPantryItem(id: number, reason?: string) {

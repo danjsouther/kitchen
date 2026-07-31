@@ -41,6 +41,14 @@ export const routes: Routes = [
     loadComponent: () => import('./pantry/pantry.component').then((m) => m.PantryComponent),
   },
   {
+    // Ahead of any future 'pantry/:id', which would otherwise swallow this and
+    // try to load an ingredient list as a lot.
+    path: 'pantry/ingredients',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pantry/ingredients.component').then((m) => m.IngredientsComponent),
+  },
+  {
     path: 'plan',
     canActivate: [authGuard],
     loadComponent: () => import('./plan/plan.component').then((m) => m.PlanComponent),

@@ -6,6 +6,8 @@ import {
   ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
+import { RouterLink } from "@angular/router";
+import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatIconModule } from "@angular/material/icon";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
@@ -15,12 +17,16 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { trimQuantity, unitLabel } from "../shared/format";
-import type { Balance, PantryLot } from "../core/models";
+import { PantryItemFormComponent } from "./pantry-item-form.component";
+import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
 
 @Component({
   selector: "app-pantry",
   imports: [
     DatePipe,
+    RouterLink,
+    PantryItemFormComponent,
+    MatButtonModule,
     MatCardModule,
     MatIconModule,
     MatProgressBarModule,
@@ -31,16 +37,35 @@ import type { Balance, PantryLot } from "../core/models";
     <div class="page">
       <div class="page-header">
         <h1>Pantry</h1>
+        <span class="grow"></span>
         @if (expiringCount(); as count) {
           <span class="warn-text row">
             <mat-icon>schedule</mat-icon>
             {{ count }} item{{ count === 1 ? "" : "s" }} needs using
           </span>
         }
+        <a mat-stroked-button routerLink="/pantry/ingredients">
+          <mat-icon>science</mat-icon>
+          Ingredients
+        </a>
+        <button mat-flat-button (click)="startAdd()">
+          <mat-icon>add</mat-icon>
+          Add
+        </button>
       </div>
 
       @if (loading()) {
         <mat-progress-bar mode="indeterminate" />
+      }
+
+      @if (adding() || editing()) {
+        <app-pantry-item-form
+          [lot]="editing()"
+          [units]="units()"
+          [locations]="locations()"
+          (saved)="onSaved()"
+          (cancelled)="closeForm()"
+        />
       }
 
       <mat-tab-group>
@@ -75,7 +100,7 @@ import type { Balance, PantryLot } from "../core/models";
                   @for (bad of balance.unconvertible; track bad.lotId) {
                     <div class="warn-text small row">
                       <mat-icon class="tiny">help_outline</mat-icon>
-                      <span>
+                      <span class="grow">
                         {{ bad.quantity }} {{ bad.unit.name }} could not be
                         combined
                         <span
@@ -85,6 +110,17 @@ import type { Balance, PantryLot } from "../core/models";
                           ({{ reasonLabel(bad.reason) }})
                         </span>
                       </span>
+                      <!--
+                        The reason is only worth naming if it can be acted on.
+                        This is the missing datum and the screen that supplies it,
+                        one click apart.
+                      -->
+                      <a
+                        class="fix"
+                        routerLink="/pantry/ingredients"
+                        [queryParams]="{ q: balance.ingredient.name }"
+                        >Fix</a
+                      >
                     </div>
                   }
                 </mat-card-content>
@@ -99,7 +135,11 @@ import type { Balance, PantryLot } from "../core/models";
               <p class="empty muted">Nothing stored yet.</p>
             }
             @for (lot of lots(); track lot.id) {
-              <mat-card [class.expired]="lot.expiry === 'expired'">
+              <mat-card
+                class="lot"
+                [class.expired]="lot.expiry === 'expired'"
+                (click)="startEdit(lot)"
+              >
                 <mat-card-content>
                   <div class="row">
                     <span class="grow">
@@ -149,6 +189,13 @@ import type { Balance, PantryLot } from "../core/models";
       width: 1rem;
       height: 1rem;
     }
+    .lot {
+      cursor: pointer;
+    }
+    .fix {
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
     mat-card.expired {
       border-left: 3px solid var(--mat-sys-error);
     }
@@ -165,6 +212,11 @@ export class PantryComponent {
   readonly balances = signal<Balance[]>([]);
   readonly loading = signal(true);
 
+  readonly units = signal<Unit[]>([]);
+  readonly locations = signal<StorageLocation[]>([]);
+  readonly adding = signal(false);
+  readonly editing = signal<PantryLot | null>(null);
+
   readonly expiringCount = computed(
     () =>
       this.lots().filter(
@@ -173,6 +225,40 @@ export class PantryComponent {
   );
 
   constructor() {
+    this.load();
+    this.api.units().subscribe({ next: (units) => this.units.set(units) });
+    this.api.locations().subscribe({
+      next: (locations) => {
+        this.locations.set(locations);
+        // Adding a lot needs somewhere to put it. Rather than let the form open
+        // with an empty, unfixable "Where" select, say what is missing.
+        if (locations.length === 0) {
+          this.notify.error(
+            null,
+            'No storage locations yet — add one in Settings before stocking the pantry.',
+          );
+        }
+      },
+    });
+  }
+
+  startAdd(): void {
+    this.editing.set(null);
+    this.adding.set(true);
+  }
+
+  startEdit(lot: PantryLot): void {
+    this.adding.set(false);
+    this.editing.set(lot);
+  }
+
+  closeForm(): void {
+    this.adding.set(false);
+    this.editing.set(null);
+  }
+
+  onSaved(): void {
+    this.closeForm();
     this.load();
   }
 

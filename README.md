@@ -379,14 +379,19 @@ Under construction. Built so far:
       clean clone, migrations and catalog seeding on boot
 - [x] `dev:up` / `dev:down`
 
+- [x] Pantry write screens — add, edit and discard a lot
+- [x] Catalog admin (`/pantry/ingredients`) — densities, item weights, shelf life, with
+      copy-on-write for shared ingredients
+
 Not done yet, and worth knowing before you rely on it:
 
-- [ ] **Write screens for data the API already accepts.** There is no manual recipe form
-      (`/recipes/new`), no way to add or edit a pantry lot, no way to add a meal to the
-      planner, no catalog admin (`/pantry/ingredients`), and no store aisle editing. The
-      endpoints all exist and are tested; the screens do not. The catalog one bites
-      hardest: density is exactly what turns "not countable" into a number, and right now
-      there is no way to add one through the UI.
+- [ ] **The remaining write screens.** There is no manual recipe form (`/recipes/new`), no
+      way to add a meal to the planner, and no store aisle editing. The endpoints exist and
+      are tested; the screens do not.
+- [ ] **Clearing a physical value.** The catalog form can set a density or item weight but
+      cannot unset one — the API treats an absent field as "leave alone", so there is no way
+      to express "this genuinely has no density". Fixing it properly means the API accepting
+      an explicit null, not the UI sending an empty string.
 - [ ] `ERD.md` — the schema is documented only by the comments in `schema.prisma`
 - [ ] `scripts/smoke.js` — the end-to-end run described in the plan. The loop has been
       walked by hand against a live database, but nothing re-runs it.
