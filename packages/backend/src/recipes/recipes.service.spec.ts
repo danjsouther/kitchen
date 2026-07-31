@@ -281,6 +281,63 @@ describe('RecipesService.update', () => {
       NotFoundException,
     );
   });
+
+  // An absent field means "leave alone", so without a value that means "clear
+  // it" an edit screen can add a description but never take one away.
+  it('clears a nullable text column when given an empty string', async () => {
+    const db = makeDb();
+    db.recipe.findFirst.mockResolvedValue({ id: 1, title: 'Chili', slug: 'chili' });
+    const { service } = makeService(db);
+
+    await service.update(1, {
+      description: '',
+      sourceUrl: '',
+      sourceNote: '   ',
+      notes: '',
+    });
+
+    const data = writtenData(db.recipe.update);
+    expect(data.description).toBeNull();
+    expect(data.sourceUrl).toBeNull();
+    expect(data.sourceNote).toBeNull();
+    expect(data.notes).toBeNull();
+  });
+
+  it('still writes text that was actually supplied', async () => {
+    const db = makeDb();
+    db.recipe.findFirst.mockResolvedValue({ id: 1, title: 'Chili', slug: 'chili' });
+    const { service } = makeService(db);
+
+    await service.update(1, { description: 'A weeknight one.' });
+
+    expect(writtenData(db.recipe.update).description).toBe('A weeknight one.');
+  });
+
+  it('leaves untouched text columns alone', async () => {
+    const db = makeDb();
+    db.recipe.findFirst.mockResolvedValue({ id: 1, title: 'Chili', slug: 'chili' });
+    const { service } = makeService(db);
+
+    await service.update(1, { servings: 8 });
+
+    const data = writtenData(db.recipe.update);
+    expect('description' in data).toBe(false);
+    expect('notes' in data).toBe(false);
+  });
+
+  // `Int?` has no way to say "exactly no prep", and create already drops a 0,
+  // so 0 has only ever meant "not recorded" in this app.
+  it('clears the minute columns on zero', async () => {
+    const db = makeDb();
+    db.recipe.findFirst.mockResolvedValue({ id: 1, title: 'Chili', slug: 'chili' });
+    const { service } = makeService(db);
+
+    await service.update(1, { prepMinutes: 0, cookMinutes: 45 });
+
+    const data = writtenData(db.recipe.update);
+    expect(data.prepMinutes).toBeNull();
+    expect(data.cookMinutes).toBe(45);
+  });
 });
 
 describe('RecipesService.scaled', () => {

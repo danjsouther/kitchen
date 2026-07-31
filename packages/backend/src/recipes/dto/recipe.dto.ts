@@ -14,6 +14,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { TagKind } from '@recipes/shared-types';
@@ -189,7 +190,12 @@ export class UpdateRecipeDto {
   @Min(0)
   cookMinutes?: number;
 
+  /**
+   * An empty string is allowed here and means "remove the link" — IsUrl would
+   * otherwise reject the one value that expresses taking one away.
+   */
   @IsOptional()
+  @ValidateIf((dto: UpdateRecipeDto) => dto.sourceUrl !== '')
   @IsUrl({}, { message: 'sourceUrl must be a valid URL.' })
   @MaxLength(2000)
   sourceUrl?: string;

@@ -242,16 +242,25 @@ export class RecipesService {
       }
     }
 
-    for (const field of [
-      'description',
-      'servings',
-      'prepMinutes',
-      'cookMinutes',
-      'sourceUrl',
-      'sourceNote',
-      'notes',
-    ] as const) {
-      if (dto[field] !== undefined) data[field] = dto[field];
+    if (dto.servings !== undefined) data.servings = dto.servings;
+
+    // An empty string clears a nullable text column rather than storing "".
+    //
+    // Without this an edit screen can add a description but never take one away,
+    // since an absent field means "leave alone" — the same gap the catalog form
+    // has with densities. The column is `String?`, so the honest representation
+    // of "the cook removed this" is null, not "".
+    for (const field of ['description', 'sourceUrl', 'sourceNote', 'notes'] as const) {
+      const value = dto[field];
+      if (value !== undefined) data[field] = value.trim() || null;
+    }
+
+    // Zero clears the minute columns for the same reason. `Int?` has no way to
+    // say "exactly no prep", and the create path already treats 0 as absent, so
+    // reading it as "not recorded" is what the app has always meant by it.
+    for (const field of ['prepMinutes', 'cookMinutes'] as const) {
+      const value = dto[field];
+      if (value !== undefined) data[field] = value > 0 ? value : null;
     }
 
     if (dto.ingredients) {
