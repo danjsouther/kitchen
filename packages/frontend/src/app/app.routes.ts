@@ -94,6 +94,12 @@ export const routes: Routes = [
       import('./settings/settings.component').then((m) => m.SettingsComponent),
   },
   {
+    path: 'settings/stores/:id',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/store-aisles.component').then((m) => m.StoreAislesComponent),
+  },
+  {
     path: 'settings/ai',
     canActivate: [adminGuard],
     loadComponent: () =>

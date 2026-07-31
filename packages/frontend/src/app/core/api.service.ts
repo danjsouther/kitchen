@@ -225,6 +225,22 @@ export class ApiService {
     return this.post<M.Store>('/stores', { name });
   }
 
+  store(id: number) {
+    return this.get<M.Store>(`/stores/${id}`);
+  }
+
+  updateStore(id: number, body: { name?: string; note?: string; sortOrder?: number }) {
+    return this.patch<M.Store>(`/stores/${id}`, body);
+  }
+
+  /**
+   * Replaces a store's aisle order wholesale, which is how the API models it:
+   * the walk is one ordered thing, not a set of rows to nudge individually.
+   */
+  setStoreAisles(id: number, aisles: Array<{ categoryId: number; sortOrder: number }>) {
+    return this.put<M.Store>(`/stores/${id}/aisles`, { aisles });
+  }
+
   shoppingLists() {
     return this.get<M.ShoppingListSummary[]>('/shopping-lists');
   }

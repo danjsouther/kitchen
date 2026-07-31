@@ -233,6 +233,14 @@ The direction of each guess is deliberate, and differs by context:
   author's latitude, where less is a valid choice; an uncountable balance is
   missing information.
 
+A store's aisle order is edited at `/settings/stores/:id`, and that screen places
+**every** category rather than offering a partial list. The generator falls back
+to the *catalog's* own position for any category a store has not placed, and both
+numberings share one scale — so a half-finished walk interleaves with the default
+instead of overriding it, putting position 11 of your walk between "Produce" (10)
+and "Bakery" (20). Ordering the whole list makes that impossible, and the catalog
+has 16 categories, so it costs nothing.
+
 Items that cannot become a pantry lot — "paper towels" is not an amount of
 anything — are reported in `skipped` with a reason rather than silently dropped.
 Totals state `unpricedItems` outright, so a running total is never mistaken for

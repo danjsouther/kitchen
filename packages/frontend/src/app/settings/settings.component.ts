@@ -90,8 +90,20 @@ import type { StorageLocation, Store } from "../core/models";
                 <mat-list-item>
                   <span matListItemTitle>{{ store.name }}</span>
                   <span matListItemLine class="muted">
-                    {{ store.aisles.length }} aisles ordered
+                    @if (store.aisles.length) {
+                      {{ store.aisles.length }} aisles ordered
+                    } @else {
+                      follows the catalog's own order
+                    }
                   </span>
+                  <a
+                    matListItemMeta
+                    mat-icon-button
+                    [routerLink]="['/settings/stores', store.id]"
+                    [attr.aria-label]="'Order the aisles at ' + store.name"
+                  >
+                    <mat-icon>reorder</mat-icon>
+                  </a>
                 </mat-list-item>
               }
             </mat-list>
