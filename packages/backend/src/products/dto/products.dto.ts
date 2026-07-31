@@ -15,11 +15,10 @@ export class ProductQueryDto {
 }
 
 /**
- * The one write path for "using" a product.
+ * Sets this household's category override for a barcode.
  *
  * There is deliberately no DTO for creating or editing a `Product`: the OFF
- * mirror is import-owned, and an endpoint that wrote to it would let one
- * household change what every other household sees.
+ * mirror is import-owned. Consensus is computed, not written here.
  */
 export class BindProductDto {
   @Type(() => Number)

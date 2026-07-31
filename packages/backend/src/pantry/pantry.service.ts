@@ -100,10 +100,18 @@ export class PantryService {
     if (!ingredientId) {
       throw new BadRequestException(
         scanned.barcode
-          ? `Barcode ${scanned.barcode} is not linked to an ingredient yet. ` +
-            'Pick one, and it will be remembered for next time.'
+          ? `Barcode ${scanned.barcode} has no ingredient category yet. ` +
+            'Pick one — that becomes your household override (and helps consensus).'
           : 'A lot needs an ingredient.',
       );
+    }
+
+    // Pin an override only when the user chose a category that differs from
+    // the live effective default (or when there was no default yet). Stocking
+    // under consensus must not write a row, or the household stops following
+    // the crowd.
+    if (scanned.barcode && dto.ingredientId) {
+      await this.products.ensureOverrideIfChanged(scanned.barcode, dto.ingredientId);
     }
 
     const [ingredient] = await Promise.all([
@@ -521,8 +529,8 @@ export class PantryService {
    *   at the same row as one scanned as EAN-13;
    * - the product must **exist** in the mirror, or the foreign key would fail
    *   later with a constraint name instead of a sentence;
-   * - the household's **binding** supplies the ingredient when the client did
-   *   not send one, which is what makes a scan-and-save flow possible at all.
+   * - the **effective category** (household override, else ranked consensus)
+   *   supplies the ingredient when the client did not send one.
    *
    * `brand` is copied off the product so the pantry list, the shopping
    * generator and the AI suggestions all keep working unchanged — they read
@@ -537,11 +545,11 @@ export class PantryService {
 
     const barcode = this.products.requireBarcode(dto.productId);
     const product = await this.products.requireProduct(barcode);
-    const binding = await this.products.bindingFor(barcode);
+    const effective = await this.products.effectiveCategory(barcode);
 
     return {
       barcode,
-      ingredientId: binding?.ingredientId ?? null,
+      ingredientId: effective?.ingredientId ?? null,
       // OFF stores brands as a comma-separated list; the first is the one on
       // the front of the pack, which is what a person means by "the brand".
       brand: product.brands?.split(',')[0]?.trim() || null,

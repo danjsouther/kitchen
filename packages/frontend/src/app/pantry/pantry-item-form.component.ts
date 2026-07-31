@@ -30,11 +30,13 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { BarcodeScanComponent } from "../shared/barcode-scan.component";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
+import { ProductPickerComponent } from "../shared/product-picker.component";
 import type {
   BarcodeLookup,
   Ingredient,
   PantryItemWrite,
   PantryLot,
+  Product,
   StorageLocation,
   Unit,
 } from "../core/models";
@@ -62,6 +64,7 @@ import type {
     MatInputModule,
     MatProgressBarModule,
     MatSelectModule,
+    ProductPickerComponent,
   ],
   template: `
     <mat-card class="form">
@@ -78,6 +81,11 @@ import type {
             label="Barcode"
             hint="Optional. Scanning fills the rest in."
             (scanned)="onScanned($event)"
+          />
+
+          <app-product-picker
+            label="Or find by name"
+            (picked)="onProductPicked($event)"
           />
 
           @if (lookingUp()) {
@@ -102,22 +110,40 @@ import type {
                     }
                   </div>
 
-                  @if (result.binding; as binding) {
+                  @if (result.source === 'override' && result.effectiveIngredient; as ingredient) {
+                    <div class="small ok-text category-row">
+                      <span>
+                        <mat-icon class="tiny">bookmark</mat-icon>
+                        Your category: {{ ingredient.name }}
+                      </span>
+                      <button
+                        mat-button
+                        type="button"
+                        class="clear-override"
+                        [disabled]="busy()"
+                        (click)="clearOverride()"
+                      >
+                        Use usual category
+                      </button>
+                    </div>
+                  } @else if (result.source === 'consensus' && result.effectiveIngredient; as ingredient) {
                     <div class="small ok-text">
-                      <mat-icon class="tiny">link</mat-icon>
-                      Stored as {{ binding.ingredient.name }}
+                      <mat-icon class="tiny">groups</mat-icon>
+                      Usually {{ ingredient.name }}
+                      @if (result.consensus[0]; as top) {
+                        ({{ top.householdCount }} household{{ top.householdCount === 1 ? "" : "s" }})
+                      }
+                      — change below to override
                     </div>
                   } @else {
                     <!--
-                      A known pack that this household has never said the
-                      meaning of. Binding is a deliberate act: getting it wrong
-                      writes the wrong ingredient onto every future scan of this
-                      barcode, so nothing is linked without a click.
+                      No override and no consensus yet. Picking a category writes
+                      an override (and seeds consensus for others). Never applied
+                      automatically from suggestions alone.
                     -->
                     <div class="small">
                       <mat-icon class="tiny">help_outline</mat-icon>
-                      Not linked to an ingredient yet — pick one below and it
-                      will be remembered.
+                      No category yet — pick an ingredient below.
                     </div>
                     @if (result.suggestedIngredients.length) {
                       <div class="suggestions">
@@ -126,7 +152,7 @@ import type {
                             mat-stroked-button
                             type="button"
                             class="chip"
-                            (click)="bindTo(item)"
+                            (click)="setOverride(item)"
                           >
                             {{ item.name }}
                           </button>
@@ -150,7 +176,7 @@ import type {
           }
 
           <app-ingredient-picker
-            label="What is it"
+            label="Category"
             [allowCreate]="true"
             [initialText]="pickerText()"
             (picked)="onPicked($event)"
@@ -270,6 +296,14 @@ import type {
     .suggestions { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
     .chip { --mat-button-outlined-container-height: 1.9rem; font-size: .8rem; }
     .ok-text { color: var(--mat-sys-primary); }
+    .category-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .25rem .5rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .clear-override { --mat-button-text-container-height: 1.75rem; font-size: .8rem; }
   `,
 })
 export class PantryItemFormComponent {
@@ -388,12 +422,19 @@ export class PantryItemFormComponent {
   }
 
   /**
+   * Name/brand search lands on the same path as a scan: the product card and
+   * effective category all hang off a barcode lookup.
+   */
+  onProductPicked(product: Product): void {
+    this.onScanned(product.barcode);
+  }
+
+  /**
    * Looks a scanned barcode up and fills in whatever it can.
    *
-   * Three outcomes, all ordinary — see `BarcodeLookup`. Note what does *not*
-   * happen on the unbound path: nothing is linked automatically, however good
-   * the suggestion looks. A wrong binding is written once and then silently
-   * applied to every future scan of that barcode.
+   * Prefills from the effective category (override or consensus). Does not
+   * write an override merely by scanning — stocking the consensus default
+   * leaves the household on the live crowd ranking.
    */
   onScanned(code: string): void {
     this.lookingUp.set(true);
@@ -404,13 +445,18 @@ export class PantryItemFormComponent {
         this.lookingUp.set(false);
         this.scan.set(result);
 
-        if (result.binding) {
-          this.applyIngredient(result.binding.ingredient);
+        if (result.effectiveIngredient) {
+          this.applyIngredient(result.effectiveIngredient);
         } else {
           // A new scan supersedes whatever the last one filled in, rather than
           // leaving the previous product's ingredient under the new barcode.
           this.pickerText.set("");
           this.model.update((m) => ({ ...m, ingredientId: 0 }));
+        }
+
+        if (result.product?.brands) {
+          const brand = result.product.brands.split(",")[0]?.trim() ?? "";
+          if (brand) this.model.update((m) => ({ ...m, brand: m.brand || brand }));
         }
       },
       error: (error: unknown) => {
@@ -421,8 +467,8 @@ export class PantryItemFormComponent {
     });
   }
 
-  /** Links the scanned barcode to an ingredient for this household, for good. */
-  bindTo(item: Ingredient): void {
+  /** Pins a household override for the scanned barcode. */
+  setOverride(item: Ingredient): void {
     const barcode = this.scan()?.barcode;
     if (!barcode || this.busy()) return;
 
@@ -432,11 +478,37 @@ export class PantryItemFormComponent {
         this.busy.set(false);
         this.scan.set(result);
         this.applyIngredient(item);
-        this.notify.success(`${result.product?.name ?? "That barcode"} is now ${item.name}.`);
+        this.notify.success(`Category set to ${item.name}.`);
       },
       error: (error: unknown) => {
         this.busy.set(false);
-        this.notify.error(error, "Could not link that barcode.");
+        this.notify.error(error, "Could not set that category.");
+      },
+    });
+  }
+
+  /** Clears the override so this household follows consensus again. */
+  clearOverride(): void {
+    const barcode = this.scan()?.barcode;
+    if (!barcode || this.busy()) return;
+
+    this.busy.set(true);
+    this.api.unbindProduct(barcode).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.scan.set(result);
+        if (result.effectiveIngredient) {
+          this.applyIngredient(result.effectiveIngredient);
+          this.notify.success(`Using usual category: ${result.effectiveIngredient.name}.`);
+        } else {
+          this.pickerText.set("");
+          this.model.update((m) => ({ ...m, ingredientId: 0 }));
+          this.notify.success("Override cleared.");
+        }
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not clear that override.");
       },
     });
   }
@@ -460,11 +532,13 @@ export class PantryItemFormComponent {
     }));
     this.error.set("");
 
-    // Choosing an ingredient while an unbound scan is on screen is the user
-    // answering "what is this barcode", so it is recorded — that is the whole
-    // point of scanning. It is still an explicit choice, not an inference.
+    // Changing away from the effective category (or picking one when there is
+    // none) is an explicit override. Matching the consensus default does not
+    // write — stocking under the crowd leaves the household unpinned.
     const scan = this.scan();
-    if (scan?.product && !scan.binding) this.bindTo(item);
+    if (!scan?.product) return;
+    const effectiveId = scan.effectiveIngredient?.id ?? null;
+    if (effectiveId !== item.id) this.setOverride(item);
   }
 
   onCreate(name: string): void {
@@ -472,10 +546,10 @@ export class PantryItemFormComponent {
     this.api.createIngredient({ name }).subscribe({
       next: (created) => {
         this.busy.set(false);
-        this.model.update((m) => ({ ...m, ingredientId: created.id }));
         this.notify.success(
           `Added ${created.name} to the catalog. It has no density yet, so it may not combine with other units.`,
         );
+        this.onPicked(created);
       },
       error: (error: unknown) => {
         this.busy.set(false);

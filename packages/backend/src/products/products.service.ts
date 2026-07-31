@@ -2,12 +2,15 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 
 import { IngredientsService } from '../catalog/ingredients.service';
 import { normalizeBarcode } from '../off/barcode';
-import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
+import { PrismaService, TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type { ProductQueryDto } from './dto/products.dto';
 
 /** Search results are capped so a one-letter query cannot pull the whole mirror. */
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
+
+/** How many consensus ranks the barcode lookup returns for the UI. */
+const CONSENSUS_LIMIT = 5;
 
 /**
  * What a product card needs. `nutriments` is included — it is a small curated
@@ -29,34 +32,56 @@ const PRODUCT_SELECT = {
   packUnit: { select: { id: true, name: true, plural: true, abbrev: true, kind: true } },
 } as const;
 
+const INGREDIENT_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  defaultUnitId: true,
+} as const;
+
+export type CategorySource = 'override' | 'consensus';
+
+export type EffectiveCategory = {
+  ingredientId: number;
+  ingredient: {
+    id: number;
+    name: string;
+    slug: string;
+    defaultUnitId: number | null;
+  };
+  source: CategorySource;
+};
+
 /**
- * Reads the global Open Food Facts mirror, and owns this household's bindings
- * from a barcode to an ingredient.
+ * Reads the global Open Food Facts mirror, and owns this household's optional
+ * category overrides for barcodes.
  *
- * The tenancy split is the whole point of this service, so it is worth stating
- * plainly: **every `product` operation here is a read.** The mirror is written
- * only by `npm run off:import`. What a household owns is the `productBinding`
- * row saying which ingredient it means by a barcode — nothing more. There is no
- * fork-a-private-copy path as there is for ingredients, because correcting OFF
- * data is OFF's job and a private duplicate of a barcode would break the one
- * thing a barcode is good for.
+ * **Every `product` operation here is a read.** The mirror is written only by
+ * `npm run off:import`. The default ingredient category for a barcode is live
+ * ranked consensus across all households' overrides (global ingredients only).
+ * What a household owns is an optional `productBinding` override — when present
+ * it wins; when absent the household follows consensus. Stocking under the
+ * default does not write an override.
+ *
+ * Consensus is the one deliberate cross-tenant read in this feature: it uses
+ * the unscoped Prisma client so household filtering does not hide other
+ * households' votes. It never exposes household ids, and never ranks
+ * household-created ingredients.
  */
 @Injectable()
 export class ProductsService {
   constructor(
     @Inject(TENANT_PRISMA) private readonly db: TenantPrisma,
+    private readonly prisma: PrismaService,
     private readonly ingredients: IngredientsService,
   ) {}
 
   /**
-   * Everything a scan needs, in one call: the global product, this household's
-   * binding if it has one, and — when it does not — ingredients it might mean.
+   * Everything a scan needs: the global product, this household's override if
+   * any, ranked consensus, and the effective category (override then consensus).
    *
    * A miss is **not** an error. Scanning something OFF has never heard of is an
-   * ordinary event (store-brand goods especially), and the pantry form's answer
-   * is to carry on with manual entry. Returning 404 would make the client treat
-   * a normal outcome as a failure, so the shape is uniform and `product` is
-   * simply null.
+   * ordinary event, and the pantry form carries on with manual entry.
    */
   async byBarcode(code: string) {
     const barcode = this.requireBarcode(code);
@@ -67,26 +92,38 @@ export class ProductsService {
     });
 
     if (!product) {
-      return { barcode, product: null, binding: null, suggestedIngredients: [] };
+      return {
+        barcode,
+        product: null,
+        override: null,
+        consensus: [],
+        effectiveIngredient: null,
+        source: null,
+        suggestedIngredients: [],
+      };
     }
 
-    const binding = await this.db.productBinding.findFirst({
-      where: { productId: barcode },
-      select: {
-        id: true,
-        ingredientId: true,
-        ingredient: { select: { id: true, name: true, slug: true, defaultUnitId: true } },
-      },
-    });
+    const [override, consensus] = await Promise.all([
+      this.overrideFor(barcode),
+      this.rankedConsensus(barcode),
+    ]);
+
+    const effective = override
+      ? { ingredient: override.ingredient, source: 'override' as const }
+      : consensus[0]
+        ? { ingredient: consensus[0].ingredient, source: 'consensus' as const }
+        : null;
 
     return {
       barcode,
       product,
-      binding,
-      // Only worth computing when there is nothing bound yet — and never
-      // applied automatically. A wrong auto-binding writes the wrong ingredient
-      // onto every future scan of that barcode, silently.
-      suggestedIngredients: binding ? [] : await this.suggestIngredients(product),
+      override,
+      consensus,
+      effectiveIngredient: effective?.ingredient ?? null,
+      source: effective?.source ?? null,
+      // Catalog search only when nothing effective — consensus is the primary
+      // uncategized path when the crowd has spoken.
+      suggestedIngredients: effective ? [] : await this.suggestIngredients(product),
     };
   }
 
@@ -114,8 +151,8 @@ export class ProductsService {
     });
   }
 
-  /** This household's bindings, for the admin list. */
-  listBindings() {
+  /** This household's category overrides, for the admin list. */
+  listOverrides() {
     return this.db.productBinding.findMany({
       select: {
         id: true,
@@ -129,15 +166,12 @@ export class ProductsService {
   }
 
   /**
-   * Points a barcode at an ingredient for this household.
+   * Pins this household's category for a barcode (override).
    *
    * Both sides are checked first: the product must exist in the mirror, and the
-   * ingredient must be one this household can actually see. `ingredients.resolve`
-   * is the shared gate for the latter — without it a request naming another
-   * household's private ingredient would surface as a foreign-key error, or
-   * worse, succeed.
+   * ingredient must be one this household can actually see.
    */
-  async bind(code: string, ingredientId: number) {
+  async setOverride(code: string, ingredientId: number) {
     const barcode = this.requireBarcode(code);
     await this.requireProduct(barcode);
     await this.ingredients.resolve([ingredientId]);
@@ -148,8 +182,7 @@ export class ProductsService {
     });
 
     // Not `upsert`: the unique key is (householdId, productId), and householdId
-    // comes from the ambient context rather than the caller, so there is no
-    // compound `where` to hand Prisma without naming a household id here.
+    // comes from the ambient context rather than the caller.
     if (existing) {
       await this.db.productBinding.update({
         where: { id: existing.id },
@@ -164,14 +197,17 @@ export class ProductsService {
     return this.byBarcode(barcode);
   }
 
-  async unbind(code: string) {
+  /** Clears the override so this household follows live consensus again. */
+  async clearOverride(code: string) {
     const barcode = this.requireBarcode(code);
 
     const { count } = await this.db.productBinding.deleteMany({
       where: { productId: barcode },
     });
     if (count === 0) {
-      throw new NotFoundException(`Your household has no binding for barcode ${barcode}.`);
+      throw new NotFoundException(
+        `Your household has no category override for barcode ${barcode}.`,
+      );
     }
 
     return this.byBarcode(barcode);
@@ -180,16 +216,94 @@ export class ProductsService {
   // -- Internals -----------------------------------------------------------
 
   /**
-   * Loads a bound ingredient for a barcode, or null.
-   *
-   * The seam the pantry and shopping services use, so "what does this household
-   * mean by this barcode" is answered in one place rather than each caller
-   * writing its own query and drifting.
+   * Effective category for pantry/shopping: household override, else top
+   * consensus, else null.
    */
-  async bindingFor(barcode: string) {
+  async effectiveCategory(barcode: string): Promise<EffectiveCategory | null> {
+    const override = await this.overrideFor(barcode);
+    if (override) {
+      return {
+        ingredientId: override.ingredientId,
+        ingredient: override.ingredient,
+        source: 'override',
+      };
+    }
+
+    const consensus = await this.rankedConsensus(barcode);
+    const top = consensus[0];
+    if (!top) return null;
+
+    return {
+      ingredientId: top.ingredientId,
+      ingredient: top.ingredient,
+      source: 'consensus',
+    };
+  }
+
+  /**
+   * Writes an override only when the chosen ingredient differs from the current
+   * effective category, or when there is no effective category yet.
+   *
+   * Stocking under the consensus default must not pin the household — otherwise
+   * they stop following the crowd as rankings change.
+   */
+  async ensureOverrideIfChanged(barcode: string, ingredientId: number): Promise<void> {
+    const effective = await this.effectiveCategory(barcode);
+    if (effective && effective.ingredientId === ingredientId) return;
+    await this.setOverride(barcode, ingredientId);
+  }
+
+  /** This household's override row, or null. */
+  async overrideFor(barcode: string) {
     return this.db.productBinding.findFirst({
       where: { productId: barcode },
-      select: { ingredientId: true },
+      select: {
+        id: true,
+        ingredientId: true,
+        ingredient: { select: INGREDIENT_SELECT },
+      },
+    });
+  }
+
+  /**
+   * Ranked consensus across all households for a barcode.
+   *
+   * Uses the unscoped client so tenancy filtering does not hide other
+   * households' overrides. Only global ingredients (`householdId IS NULL`)
+   * enter the ranking — a private fork never becomes anyone else's default.
+   */
+  async rankedConsensus(barcode: string) {
+    const ranks = await this.prisma.$queryRaw<
+      Array<{ ingredientId: number; householdCount: number }>
+    >`
+      SELECT pb."ingredientId", COUNT(*)::int AS "householdCount"
+      FROM "product_binding" pb
+      INNER JOIN "ingredient" i ON i.id = pb."ingredientId"
+      WHERE pb."productId" = ${barcode}
+        AND i."householdId" IS NULL
+      GROUP BY pb."ingredientId"
+      ORDER BY COUNT(*) DESC, pb."ingredientId" ASC
+      LIMIT ${CONSENSUS_LIMIT}
+    `;
+
+    if (ranks.length === 0) return [];
+
+    const ingredients = await this.db.ingredient.findMany({
+      where: { id: { in: ranks.map((r) => r.ingredientId) } },
+      select: INGREDIENT_SELECT,
+    });
+    const byId = new Map(ingredients.map((row) => [row.id, row]));
+
+    return ranks.flatMap((rank) => {
+      const ingredient = byId.get(rank.ingredientId);
+      if (!ingredient) return [];
+      return [
+        {
+          ingredientId: rank.ingredientId,
+          ingredient,
+          householdCount: rank.householdCount,
+        },
+      ];
     });
   }
 
@@ -221,12 +335,9 @@ export class ProductsService {
   }
 
   /**
-   * Ingredients this product might be, for the user to choose from.
-   *
-   * Searched on the product name first, then its most specific OFF category as
-   * a fallback — "en:wheat-flours" becomes "wheat flours", which finds flour
-   * where the brand-heavy product name would not. Suggestions only; nothing
-   * here binds anything.
+   * Ingredients this product might be, for the user to choose from when there
+   * is no override and no consensus yet. Suggestions only — nothing here
+   * writes an override.
    */
   private async suggestIngredients(product: { name: string; categoriesTags: string[] }) {
     const byName = await this.ingredients.search({ q: product.name, limit: 5 });

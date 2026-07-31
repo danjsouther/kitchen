@@ -123,9 +123,9 @@ singularised slug, then `pg_trgm` similarity.
 
 ```mermaid
 erDiagram
-  Product ||--o{ ProductBinding : "means (per household)"
+  Product ||--o{ ProductBinding : "override category (optional)"
   Ingredient ||--o{ ProductBinding : "is"
-  Household ||--o{ ProductBinding : "owns"
+  Household ||--o{ ProductBinding : "may override"
   Unit |o--o{ Product : "pack size in (optional)"
   Product |o--o{ PantryItem : "stocked as (optional)"
   Product |o--o{ ShoppingListItem : "listed as (optional)"
@@ -145,7 +145,7 @@ erDiagram
   }
   ProductBinding {
     int id PK
-    int householdId FK "required"
+    int householdId FK "required — override only; absence means follow consensus"
     string productId FK "the barcode"
     int ingredientId FK
   }
@@ -164,10 +164,13 @@ pack; a household-private duplicate of one would break the single thing a
 barcode is good for, which is that everybody scanning that pack gets the same
 answer. Correcting OFF's data is a contribution to OFF, not a local edit.
 
-So what does a household own? Exactly one thing: `ProductBinding`, the line from
-a barcode to *its* ingredient. Two households can scan the same jar and
-reasonably mean different rows in their own catalogs, and that disagreement is
-the only tenant-scoped part of the feature.
+The **default** ingredient category for a barcode is live ranked consensus: count
+of `ProductBinding` rows per global ingredient (`ingredient.householdId IS NULL`),
+highest count wins. Household-created ingredients never enter that ranking.
+
+What a household owns is an optional **override** (`ProductBinding`): when present
+it wins over consensus; when absent (or deleted) the household follows the live
+default. Stocking under the consensus default does not write an override.
 
 `imageSmallUrl` is **derived, not stored by OFF.** The export has no image URL
 field at all — only a nested `images` object the URL is built from, using the
@@ -440,7 +443,7 @@ or a price refuses deletion for the same reason, and says so.
 | `PlannedMeal(householdId, date)` | every planner read is a date range |
 | `IngredientAlias(slug)` | the parser's second matching route, hit once per pasted line |
 | `Product(name)` | product search is by name, over a table that can hold millions of rows |
-| `ProductBinding(householdId, productId)` unique | one meaning per barcode per household; a second would make "what is this" ambiguous |
+| `ProductBinding(householdId, productId)` unique | at most one category override per barcode per household |
 | `PriceObservation(householdId, productId, observedOn)` | prefilling a scanned line reads the newest price for one barcode |
 
 Uniqueness carries meaning too: `Ingredient(householdId, slug)` and

@@ -67,9 +67,10 @@ export class PantryQueryDto {
 
 export class CreatePantryItemDto {
   /**
-   * Optional when `productId` is sent and this household has a binding for it —
-   * the binding then says which ingredient the barcode means. Required in every
-   * other case, and the service says so rather than inventing one.
+   * Optional when `productId` is sent and an effective category exists for it
+   * (household override or ranked consensus). Required otherwise; the service
+   * says so rather than inventing one. Sending an ingredient that differs from
+   * the effective default writes a household override.
    */
   @IsOptional()
   @Type(() => Number)

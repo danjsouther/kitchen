@@ -14,16 +14,21 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { BarcodeScanComponent } from "../shared/barcode-scan.component";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
-import type { BarcodeLookup, Ingredient, ProductBindingRow } from "../core/models";
+import { ProductPickerComponent } from "../shared/product-picker.component";
+import type {
+  BarcodeLookup,
+  Ingredient,
+  Product,
+  ProductBindingRow,
+} from "../core/models";
 
 /**
- * What this household means by each barcode it has scanned.
+ * This household's category overrides for products.
  *
- * The tenancy split this screen exists to make visible: the products themselves
- * are a shared, read-only mirror of Open Food Facts, and none of them can be
- * edited here or anywhere. What belongs to the household — and all that belongs
- * to it — is the line from a barcode to an ingredient. So this screen relinks
- * and unlinks, and never offers to change a product.
+ * Products are a shared, import-owned Open Food Facts mirror. The default
+ * category for a barcode is live ranked consensus across households. What
+ * belongs here is only an optional override — pin a different category, or
+ * clear it to follow the crowd again.
  */
 @Component({
   selector: "app-product-bindings",
@@ -35,27 +40,32 @@ import type { BarcodeLookup, Ingredient, ProductBindingRow } from "../core/model
     MatCardModule,
     MatIconModule,
     MatProgressBarModule,
+    ProductPickerComponent,
   ],
   template: `
     <div class="page">
       <div class="page-header">
-        <h1>Barcodes</h1>
+        <h1>Product categories</h1>
         <span class="grow"></span>
       </div>
 
       <p class="muted">
-        Products come from Open Food Facts and are shared, read-only, and the
-        same for everyone. What is yours is the link from a barcode to one of
-        your ingredients — that is what lets a scan know what it is putting in
-        the pantry.
+        Products come from Open Food Facts and are the same for everyone. By
+        default a barcode uses the most common category across households. Your
+        overrides below pin a different category for this household only.
       </p>
 
       <mat-card class="adder">
         <mat-card-content>
           <app-barcode-scan
-            label="Link a barcode"
-            hint="Scan or type a code to link it, or to see what it is linked to."
+            label="Look up a product"
+            hint="Scan or type a code to see the usual category, or set an override."
             (scanned)="onScanned($event)"
+          />
+
+          <app-product-picker
+            label="Or find by name"
+            (picked)="onProductPicked($event)"
           />
 
           @if (lookingUp()) {
@@ -68,20 +78,40 @@ import type { BarcodeLookup, Ingredient, ProductBindingRow } from "../core/model
                 <strong class="grow">{{ product.name }}</strong>
                 <span class="muted small">{{ product.barcode }}</span>
               </div>
-              @if (result.binding; as binding) {
+              @if (result.source === 'override' && result.effectiveIngredient; as ingredient) {
                 <p class="small">
-                  Already linked to <strong>{{ binding.ingredient.name }}</strong
-                  >. Pick another below to change it.
+                  Your override: <strong>{{ ingredient.name }}</strong>. Pick
+                  another below to change it, or clear to follow the usual
+                  category.
                 </p>
+                <button
+                  mat-stroked-button
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="clearOverride(result.barcode)"
+                >
+                  Use usual category
+                </button>
+              } @else if (result.source === 'consensus' && result.effectiveIngredient; as ingredient) {
+                <p class="small">
+                  Usually <strong>{{ ingredient.name }}</strong>
+                  @if (result.consensus[0]; as top) {
+                    ({{ top.householdCount }} household{{ top.householdCount === 1 ? "" : "s" }})
+                  }
+                  . Pick below only if you want a different category for this
+                  household.
+                </p>
+              } @else {
+                <p class="small">No category yet — pick one below to set an override.</p>
               }
               <app-ingredient-picker
-                label="Link it to"
-                (picked)="bind(result.barcode, $event)"
+                label="Override category"
+                (picked)="setOverride(result.barcode, $event)"
               />
             } @else {
               <p class="muted small">
                 Barcode {{ result.barcode }} is not in the catalog, so there is
-                nothing to link it to. It may not be in Open Food Facts, or the
+                nothing to categorize. It may not be in Open Food Facts, or the
                 mirror may need its monthly refresh.
               </p>
             }
@@ -93,40 +123,40 @@ import type { BarcodeLookup, Ingredient, ProductBindingRow } from "../core/model
         <mat-progress-bar mode="indeterminate" />
       }
 
-      @if (!loading() && bindings().length === 0) {
+      @if (!loading() && overrides().length === 0) {
         <p class="empty muted">
-          Nothing linked yet. Scan a barcode when adding to the pantry and it
-          will be remembered here.
+          No overrides yet. Most barcodes simply follow the usual category —
+          only pin one when you disagree.
         </p>
       }
 
-      @for (binding of bindings(); track binding.id) {
+      @for (row of overrides(); track row.id) {
         <mat-card>
           <mat-card-content class="row">
-            @if (binding.product.imageSmallUrl) {
-              <img [src]="binding.product.imageSmallUrl" [alt]="binding.product.name" />
+            @if (row.product.imageSmallUrl) {
+              <img [src]="row.product.imageSmallUrl" [alt]="row.product.name" />
             }
             <span class="grow">
-              <strong>{{ binding.product.name }}</strong>
-              @if (binding.product.brands) {
-                <span class="muted"> · {{ binding.product.brands }}</span>
+              <strong>{{ row.product.name }}</strong>
+              @if (row.product.brands) {
+                <span class="muted"> · {{ row.product.brands }}</span>
               }
-              <div class="muted small">{{ binding.productId }}</div>
+              <div class="muted small">{{ row.productId }}</div>
             </span>
 
             <span class="ingredient">
               <mat-icon class="tiny">arrow_forward</mat-icon>
-              {{ binding.ingredient.name }}
+              {{ row.ingredient.name }}
             </span>
 
             <button
               mat-button
               class="warn-text"
               [disabled]="busy()"
-              (click)="unbind(binding)"
+              (click)="clearListed(row)"
             >
-              <mat-icon>link_off</mat-icon>
-              Unlink
+              <mat-icon>restart_alt</mat-icon>
+              Clear
             </button>
           </mat-card-content>
         </mat-card>
@@ -147,17 +177,21 @@ export class ProductBindingsComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
 
-  readonly bindings = signal<ProductBindingRow[]>([]);
+  readonly overrides = signal<ProductBindingRow[]>([]);
   readonly loading = signal(true);
   readonly busy = signal(false);
 
   readonly scan = signal<BarcodeLookup | null>(null);
   readonly lookingUp = signal(false);
 
-  readonly count = computed(() => this.bindings().length);
+  readonly count = computed(() => this.overrides().length);
 
   constructor() {
     this.load();
+  }
+
+  onProductPicked(product: Product): void {
+    this.onScanned(product.barcode);
   }
 
   onScanned(code: string): void {
@@ -175,7 +209,7 @@ export class ProductBindingsComponent {
     });
   }
 
-  bind(barcode: string, item: Ingredient): void {
+  setOverride(barcode: string, item: Ingredient): void {
     if (this.busy()) return;
     this.busy.set(true);
 
@@ -183,37 +217,59 @@ export class ProductBindingsComponent {
       next: (result) => {
         this.busy.set(false);
         this.scan.set(result);
-        this.notify.success(`Linked to ${item.name}.`);
+        this.notify.success(`Override set to ${item.name}.`);
         this.load();
       },
       error: (error: unknown) => {
         this.busy.set(false);
-        this.notify.error(error, "Could not link that barcode.");
+        this.notify.error(error, "Could not set that override.");
+      },
+    });
+  }
+
+  clearOverride(barcode: string): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+
+    this.api.unbindProduct(barcode).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.scan.set(result);
+        this.notify.success(
+          result.effectiveIngredient
+            ? `Using usual category: ${result.effectiveIngredient.name}.`
+            : "Override cleared.",
+        );
+        this.load();
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not clear that override.");
       },
     });
   }
 
   /**
-   * Removes the link only.
+   * Removes the override only.
    *
    * Lots already stocked keep their `productId` — they really did come from
-   * that pack, and rewriting history because a link was corrected later would
-   * be a different claim from the one the ledger recorded.
+   * that pack, and rewriting history because a category was corrected later
+   * would be a different claim from the one the ledger recorded.
    */
-  unbind(binding: ProductBindingRow): void {
+  clearListed(row: ProductBindingRow): void {
     if (this.busy()) return;
     this.busy.set(true);
 
-    this.api.unbindProduct(binding.productId).subscribe({
+    this.api.unbindProduct(row.productId).subscribe({
       next: () => {
         this.busy.set(false);
-        this.notify.success(`Unlinked ${binding.product.name}.`);
+        this.notify.success(`Cleared override for ${row.product.name}.`);
         this.scan.set(null);
         this.load();
       },
       error: (error: unknown) => {
         this.busy.set(false);
-        this.notify.error(error, "Could not unlink that barcode.");
+        this.notify.error(error, "Could not clear that override.");
       },
     });
   }
@@ -222,12 +278,12 @@ export class ProductBindingsComponent {
     this.loading.set(true);
     this.api.productBindings().subscribe({
       next: (rows) => {
-        this.bindings.set(rows);
+        this.overrides.set(rows);
         this.loading.set(false);
       },
       error: (error: unknown) => {
         this.loading.set(false);
-        this.notify.error(error, "Could not load your barcode links.");
+        this.notify.error(error, "Could not load your category overrides.");
       },
     });
   }

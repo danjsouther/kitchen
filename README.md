@@ -144,8 +144,8 @@ then re-enters its own.
 Scanning a barcode at the fridge should not depend on someone else's uptime, and
 Open Food Facts asks that bulk consumers use its data dumps rather than hitting
 the API. So **there is no live OFF lookup anywhere in this app.** A monthly
-import loads a JSONL export into a global `product` table, and every scan is a
-local query.
+import loads a JSONL export into a global `product` table, and every lookup —
+scan or name/brand search — is a local query.
 
 ```sh
 npm run off:download -w packages/backend                       # ~12.5 GB, monthly
@@ -200,7 +200,7 @@ no row for, a row with no barcode, a row with no name, and a truncated line:
 npm run off:import -w packages/backend -- --file packages/backend/prisma/seed/off-fixtures/products.jsonl --all
 ```
 
-### Global products, household bindings
+### Global products, consensus default, household override
 
 The tenancy split here is worth stating precisely, because it differs from the
 one the ingredient catalog uses:
@@ -209,30 +209,40 @@ one the ingredient catalog uses:
   import CLI and by no endpoint. There is no fork-and-customize path as there is
   for ingredients — a barcode identifies a physical pack, and a private
   duplicate of one would defeat the only thing a barcode is good for.
-- **`ProductBinding` is household-scoped**, and is the only thing a household
-  owns here: the line from a barcode to *its* ingredient. Two households can
-  scan the same jar and mean different rows in their own catalogs.
+- **The default category is live ranked consensus** across all households'
+  overrides for that barcode, counting only global ingredients
+  (`ingredient.householdId IS NULL`). Household-created ingredients never enter
+  the ranking.
+- **`ProductBinding` is an optional household override.** When present it wins
+  over consensus; clearing it restores the live default. Stocking under the
+  consensus category does not write an override.
 
-So `PUT /products/:barcode/binding` is the single write path for "using" a
-product. Everything else about products is a read.
+So `PUT /products/:barcode/binding` pins an override, and `DELETE` clears it.
+Everything else about products is a read — including the consensus aggregate.
 
 Scanning is normalized on both sides by the same function, which is what makes
 it work at all: a US pack scans as 12-digit UPC-A while OFF stores it as EAN-13
 with a leading zero, and UPC-E scans short. Without that, every American barcode
 would miss a row sitting in the table.
 
-Three outcomes from a scan, all ordinary:
+Four outcomes from a scan, all ordinary:
 
 | What came back | What the pantry form does |
 |---|---|
-| Product **and** binding | Fills in the ingredient, brand and unit; save |
-| Product, **no** binding | Shows the pack, suggests ingredients, binds on your click |
-| No product | Says so, and falls back to the manual flow |
+| Product + **your override** | Fills your category; option to clear and follow the crowd |
+| Product + **consensus** | Fills the usual category; change only if you disagree |
+| Product, **no category yet** | Shows the pack, suggests ingredients; picking writes an override |
+| No product | Says so, and falls back to the manual (ingredient-only) flow |
 
-A miss is not an error — plenty of store-brand goods are simply not in OFF — and
-nothing is ever bound automatically, however good a suggestion looks. A wrong
-binding is written once and then silently applied to every future scan of that
-barcode.
+When the pack is not in hand, the same pantry form (and the product-categories
+screen) can find it by name or brand against the local mirror. A pick runs the
+same barcode lookup as a scan. A miss there is equally ordinary — the pack may
+simply not be in OFF, or the mirror may need its monthly refresh — and there is
+no "create product" path.
+
+Nothing is ever categorized automatically from OFF tags or name suggestions.
+An override is written only when you explicitly change the category (or pick
+one when consensus is empty).
 
 Pack sizes get the same treatment as everything else here. `quantity` in the
 dump is free text: "345 g", "6 x 330 ml" (which really is 1980 ml), "1,5 L",
@@ -313,8 +323,9 @@ forgotten:
   household could edit or delete the seeded catalog that every household reads.
 - `Product` — the Open Food Facts mirror — is global with no `householdId` at all, and is
   not filtered. Nothing in the extension stops a write to it; what stops one is that no
-  service and no endpoint performs one. Households own only their `ProductBinding` rows,
-  which *are* scoped.
+  service and no endpoint performs one of OFF fields. Households own optional
+  `ProductBinding` overrides (scoped). The default category is live ranked consensus,
+  queried once via the unscoped client (counts + global ingredients only).
 - A query that reaches a scoped model with no household context **throws** rather than
   running unfiltered. Crossing households requires an explicit `runUnscoped()`, which
   exists in exactly one place: authenticating someone before we know their household.
@@ -569,7 +580,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 | `/recipes/new`, `/recipes/:id/edit` | Write one by hand, or correct one already saved |
 | `/recipes/:id` | The recipe, with a serving scaler |
 | `/pantry` | On-hand totals and every individual lot, with expiry warnings |
-| `/pantry/barcodes` | What this household means by each barcode it has scanned |
+| `/pantry/barcodes` | Optional category overrides for products (consensus is the default) |
 | `/plan` | The week grid; cook a meal from here, or undo one |
 | `/cook` | Both "what can I cook" tabs |
 | `/shopping` | Generate from the plan, tick off with prices, receive into the pantry |
@@ -639,7 +650,7 @@ Under construction. Built so far:
 - [x] [`ERD.md`](ERD.md) — the tables, the relationships, and which nullable columns are
       nullable on purpose
 - [x] Open Food Facts products — offline monthly mirror, barcode scan on pantry intake,
-      household-only bindings, `productId` carried through shopping onto lots and prices
+      consensus default + household category override, `productId` through shopping
 
 Not done yet, and worth knowing before you rely on it:
 

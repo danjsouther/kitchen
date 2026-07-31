@@ -167,7 +167,7 @@ would quietly move everyone's costs and data onto one credential.
   remove them, the recorded checksum needs updating too or `migrate` refuses to
   run.
 
-## Products are global; only the binding is yours
+## Products are global; category defaults to consensus
 
 `Product` is the Open Food Facts mirror and is the one table that is global
 *without* being shared catalog. `Unit` and `Ingredient` have a nullable
@@ -178,8 +178,17 @@ would defeat the only thing a barcode is good for.
 
 It is written by `npm run off:import` and by **no endpoint**. Nothing in
 `tenancy.ts` enforces that, because there is nothing to filter on; what enforces
-it is that no service performs a product write. Keep it that way. What a
-household owns is `ProductBinding`: which ingredient it means by a barcode.
+it is that no service performs a product write of OFF fields. Keep it that way.
+
+The **default** ingredient category for a barcode is live ranked consensus:
+count `ProductBinding` rows per global ingredient (`householdId IS NULL`),
+highest count wins. Household-created ingredients never enter that ranking.
+What a household owns is an optional **override** (`ProductBinding`): when
+present it wins over consensus; clearing it restores the live default.
+Stocking under the consensus default must **not** write an override — otherwise
+the household stops following the crowd as rankings change. The consensus query
+is the one deliberate cross-tenant aggregate in this feature (unscoped Prisma);
+it exposes only counts and global ingredients, never other households' ids.
 
 Two more things that are load-bearing and look incidental:
 
@@ -193,8 +202,9 @@ Two more things that are load-bearing and look incidental:
   `quantityRaw`. A quantity with no unit is a number with no meaning — the same
   rule as everywhere else here.
 
-Never bind a barcode automatically, however confident the suggestion. It is
-written once and then applied silently to every future scan of that code.
+Never auto-categorize from OFF tags or name suggestions. An override is written
+only when the user explicitly changes the category (or picks one when consensus
+is empty).
 
 ### The import writes raw SQL on purpose
 

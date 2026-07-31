@@ -4,6 +4,19 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — Product categories: consensus default + household override
+
+Effective ingredient category for a barcode is now **live ranked consensus**
+across households (global ingredients only), with an optional household
+`product_binding` override. Stocking under the consensus default does not write
+an override; changing the category (or picking one when consensus is empty)
+does. Clearing the override restores the crowd default.
+
+- `GET /products/by-barcode/:code` returns `override`, `consensus`,
+  `effectiveIngredient`, and `source` (`override` | `consensus` | null).
+- Pantry and shopping resolve via `effectiveCategory` (override then consensus).
+- `/pantry/barcodes` retitled to product category overrides.
+
 ### Added — Open Food Facts product catalog (2026-07-31)
 
 Barcode scanning on pantry intake, backed by an offline mirror of Open Food
@@ -12,9 +25,8 @@ Facts rather than a live API.
 - **Global `product` table**, no `householdId`. Barcode is the primary key;
   name, brands, pack size, category and country tags, image URL, per-100g
   nutriments and Nutri-Score. Written by the import CLI and by no endpoint.
-- **Household `product_binding`**, mapping a barcode to an `Ingredient`. The
-  only tenant-scoped part of the feature, and the only write path for "using" a
-  product.
+- **Household `product_binding`**, optional category override for a barcode.
+  Default category is ranked consensus across households (see above).
 - **`productId` on `pantry_item`, `shopping_list_item` and `price_observation`**,
   all optional. `brand` is kept alongside it and denormalized from the product
   on intake, so existing screens and the shopping generator are unchanged.
@@ -22,14 +34,13 @@ Facts rather than a live API.
   **`npm run off:import`** streams it into Postgres with a country filter
   (`en:united-states` by default), batched idempotent upserts, and a `--replace`
   that refuses to run while any product is referenced.
-- **`GET /products/by-barcode/:code`** returns the global product, this
-  household's binding if any, and suggested ingredients when there is none.
-  Also `GET /products?q=`, `GET /products/bindings`,
-  `PUT|DELETE /products/:code/binding`.
+- **`GET /products/by-barcode/:code`** returns the global product, override,
+  consensus, and effective category. Also `GET /products?q=`,
+  `GET /products/bindings`, `PUT|DELETE /products/:code/binding`.
 - **Barcode field on the pantry form**, with camera capture via `BarcodeDetector`
   where the browser has it and `@zxing/browser` (lazily loaded) where it does
   not. Manual entry is always available and is not a fallback.
-- **`/pantry/barcodes`** lists, relinks and unlinks this household's bindings.
+- **`/pantry/barcodes`** lists and clears this household's category overrides.
 
 Notes on the decisions that are easy to get wrong later:
 
@@ -38,8 +49,9 @@ Notes on the decisions that are easy to get wrong later:
   different format from the one OFF stores it under.
 - A pack size that will not parse leaves `packQuantity` **and** `packUnitId`
   null and keeps `quantityRaw`. A number with no unit is not a size.
-- Nothing is ever bound automatically. A wrong binding is written once and then
-  applied silently to every future scan of that barcode.
+- Nothing is ever categorized automatically from OFF tags or name suggestions.
+  An override is written only when the user changes the category (or picks one
+  when consensus is empty). Stocking the consensus default does not pin one.
 - A barcode that is not in the mirror is not an error; the manual flow takes
   over.
 

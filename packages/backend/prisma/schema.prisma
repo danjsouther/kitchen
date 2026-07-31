@@ -239,12 +239,13 @@ model Ingredient {
 }
 
 // ---------------------------------------------------------------------------
-// Open Food Facts product catalog (global) and household bindings
+// Open Food Facts product catalog (global) and household category overrides
 // ---------------------------------------------------------------------------
 
 /// Global product catalog mirrored from Open Food Facts. No householdId — OFF
-/// data is shared and import-owned. Households never create or edit these rows;
-/// they only bind a barcode to an Ingredient via ProductBinding.
+/// data is shared and import-owned. Households never create or edit these rows.
+/// The default ingredient category for a barcode is ranked consensus across
+/// households' ProductBinding overrides; see ProductsService.effectiveCategory.
 model Product {
   barcode         String   @id
   name            String
@@ -270,8 +271,11 @@ model Product {
   @@map("product")
 }
 
-/// Maps a global Product barcode to an Ingredient for this household so pantry
-/// math knows the substance. The only tenant-scoped product concern.
+/// Optional household override of a product's ingredient category.
+///
+/// When absent, the effective category is live ranked consensus across all
+/// households' overrides (global ingredients only). Writing a row here pins
+/// this household's choice; deleting it restores the consensus default.
 model ProductBinding {
   id           Int @id @default(autoincrement())
   householdId  Int

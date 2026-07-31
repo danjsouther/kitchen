@@ -5,11 +5,10 @@ import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
 /**
- * The global product catalog and household bindings.
+ * The global product catalog and household category overrides.
  *
  * Exported because pantry and shopping both need to validate a `productId` and
- * ask what this household means by it — and both must do so through the one
- * service rather than querying `product` themselves.
+ * resolve the effective ingredient category (override then consensus).
  */
 @Module({
   imports: [CatalogModule],

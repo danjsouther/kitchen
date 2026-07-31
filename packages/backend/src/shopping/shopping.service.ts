@@ -208,8 +208,8 @@ export class ShoppingService {
     const scanned = await this.resolveScannedProduct(dto.productId);
     const ingredientId = dto.ingredientId ?? scanned.ingredientId;
 
-    // A scanned product with a binding is a perfectly good "what is it", so the
-    // check runs after the barcode has had its say rather than before.
+    // A scanned product with an effective category is a perfectly good
+    // "what is it", so the check runs after the barcode has had its say.
     if (!ingredientId && !dto.rawName?.trim() && !scanned.barcode) {
       throw new BadRequestException('An item needs either an ingredient or a name.');
     }
@@ -217,11 +217,15 @@ export class ShoppingService {
       throw new BadRequestException('A unit with no quantity is not an amount.');
     }
 
+    if (scanned.barcode && dto.ingredientId) {
+      await this.products.ensureOverrideIfChanged(scanned.barcode, dto.ingredientId);
+    }
+
     await this.db.shoppingListItem.create({
       data: {
         listId: list.id,
         ingredientId: ingredientId ?? null,
-        // An unbound scan still needs something to read on the list, so the
+        // An uncategized scan still needs something to read on the list, so the
         // product name stands in rather than leaving a blank line.
         rawName: dto.rawName?.trim() || (ingredientId ? null : scanned.name),
         quantity: dto.quantity ?? null,
@@ -408,9 +412,10 @@ export class ShoppingService {
    *
    * Mirrors `PantryService.resolveScannedProduct` deliberately: both normalize
    * through the same function, check the product exists, and read the
-   * household's binding, so a barcode means the same thing on a list as it does
-   * on a shelf. An empty string is "detach", which is distinct from the field
-   * being absent — that means "leave it alone" and never reaches here.
+   * effective category (override then consensus), so a barcode means the same
+   * thing on a list as it does on a shelf. An empty string is "detach", which
+   * is distinct from the field being absent — that means "leave it alone" and
+   * never reaches here.
    */
   private async resolveScannedProduct(productId: string | undefined): Promise<{
     barcode: string | null;
@@ -424,11 +429,11 @@ export class ShoppingService {
 
     const barcode = this.products.requireBarcode(productId);
     const product = await this.products.requireProduct(barcode);
-    const binding = await this.products.bindingFor(barcode);
+    const effective = await this.products.effectiveCategory(barcode);
 
     return {
       barcode,
-      ingredientId: binding?.ingredientId ?? null,
+      ingredientId: effective?.ingredientId ?? null,
       brand: product.brands?.split(',')[0]?.trim() || null,
       name: product.name,
     };

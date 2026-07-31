@@ -49,8 +49,8 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
           Ingredients
         </a>
         <a mat-stroked-button routerLink="/pantry/barcodes">
-          <mat-icon>barcode_reader</mat-icon>
-          Barcodes
+          <mat-icon>category</mat-icon>
+          Categories
         </a>
         <button mat-flat-button (click)="startAdd()">
           <mat-icon>add</mat-icon>

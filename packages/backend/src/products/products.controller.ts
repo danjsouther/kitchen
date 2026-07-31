@@ -4,23 +4,24 @@ import { BindProductDto, ProductQueryDto } from './dto/products.dto';
 import { ProductsService } from './products.service';
 
 /**
- * The Open Food Facts mirror, and this household's bindings onto it.
+ * The Open Food Facts mirror, and this household's optional category overrides.
  *
  * Note what is *not* here: no POST, PATCH or DELETE on a product. The mirror is
  * written by `npm run off:import` and by nothing else. Every write below is on
- * `productBinding`, which is household-scoped.
+ * `productBinding` (household override only). The default category is live
+ * ranked consensus and is never stored on Product.
  */
 @Controller('products')
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
   /**
-   * Ahead of `:barcode/...` routes and of nothing else — Nest matches in
-   * declaration order, and 'bindings' would otherwise be read as a barcode.
+   * Ahead of `:barcode/...` routes — Nest matches in declaration order, and
+   * 'bindings' would otherwise be read as a barcode.
    */
   @Get('bindings')
-  listBindings() {
-    return this.products.listBindings();
+  listOverrides() {
+    return this.products.listOverrides();
   }
 
   @Get('by-barcode/:code')
@@ -33,13 +34,15 @@ export class ProductsController {
     return this.products.search(query);
   }
 
+  /** Sets this household's category override for a barcode. */
   @Put(':code/binding')
-  bind(@Param('code') code: string, @Body() dto: BindProductDto) {
-    return this.products.bind(code, dto.ingredientId);
+  setOverride(@Param('code') code: string, @Body() dto: BindProductDto) {
+    return this.products.setOverride(code, dto.ingredientId);
   }
 
+  /** Clears the override so this household follows consensus again. */
   @Delete(':code/binding')
-  unbind(@Param('code') code: string) {
-    return this.products.unbind(code);
+  clearOverride(@Param('code') code: string) {
+    return this.products.clearOverride(code);
   }
 }

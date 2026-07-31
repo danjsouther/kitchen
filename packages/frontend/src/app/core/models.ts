@@ -64,12 +64,9 @@ export interface IngredientWrite {
 export interface PantryItemWrite {
   ingredientId?: number;
   /**
-   * A scanned barcode. Sent in any format — the server normalizes it, using the
-   * same function the importer used, which is what makes a 12-digit US scan
-   * find the 13-digit row.
-   *
-   * When this household has a binding for it, `ingredientId` may be omitted and
-   * the binding supplies it.
+   * A scanned barcode. Sent in any format — the server normalizes it.
+   * Optional when an effective category exists (override or consensus).
+   * Sending a different ingredient writes a household override.
    */
   productId?: string;
   locationId?: number;
@@ -89,9 +86,9 @@ export interface PantryItemWrite {
 /**
  * A row from the global Open Food Facts mirror.
  *
- * Global and read-only: no `householdId`, and there is no endpoint that creates
- * or edits one. What a household owns is the `ProductBinding` saying which
- * ingredient it means by this barcode.
+ * Global and import-owned: no `householdId`, and there is no endpoint that
+ * creates or edits OFF fields. The default ingredient category is live ranked
+ * consensus; a household may optionally override via `ProductBinding`.
  *
  * `packQuantity` and `packUnit` are both null when the pack size would not
  * parse — "a family size box" — and `quantityRaw` still carries the original
@@ -115,28 +112,33 @@ export interface Product {
   importedOn: string;
 }
 
-/** What this household means by a barcode. */
+/** This household's optional category override for a barcode. */
 export interface ProductBinding {
   id: number;
   productId: string;
   ingredientId: number;
-  ingredient: { id: number; name: string; slug: string };
+  ingredient: { id: number; name: string; slug: string; defaultUnitId?: number | null };
 }
 
-/** A binding as the admin list returns it, with the product joined on. */
+/** An override as the admin list returns it, with the product joined on. */
 export interface ProductBindingRow extends ProductBinding {
   product: Pick<Product, 'barcode' | 'name' | 'brands' | 'imageSmallUrl'>;
+}
+
+/** One rank of crowdsourced category consensus for a barcode. */
+export interface ProductConsensusRank {
+  ingredientId: number;
+  ingredient: { id: number; name: string; slug: string; defaultUnitId?: number | null };
+  householdCount: number;
 }
 
 /**
  * What a scan resolves to.
  *
- * All three states are ordinary and the UI handles each differently:
- *
- * - `product` set, `binding` set — everything known; fill the form and save.
- * - `product` set, `binding` null — the pack is known but not what it *is*;
- *   offer `suggestedIngredients` and bind on confirmation.
- * - `product` null — not in the mirror at all; fall back to manual entry.
+ * - `product` + `source: 'override'` — your household pinned a category.
+ * - `product` + `source: 'consensus'` — following the ranked crowd default.
+ * - `product` + no effective — pick a category (writes an override).
+ * - `product` null — not in the mirror; fall back to manual entry.
  *
  * A miss is deliberately not an error: plenty of store-brand goods are simply
  * not in Open Food Facts.
@@ -144,7 +146,16 @@ export interface ProductBindingRow extends ProductBinding {
 export interface BarcodeLookup {
   barcode: string;
   product: Product | null;
-  binding: (ProductBinding & { ingredient: ProductBinding['ingredient'] }) | null;
+  override: (ProductBinding & { ingredient: ProductBinding['ingredient'] }) | null;
+  consensus: ProductConsensusRank[];
+  effectiveIngredient: {
+    id: number;
+    name: string;
+    slug: string;
+    defaultUnitId?: number | null;
+  } | null;
+  source: 'override' | 'consensus' | null;
+  /** Only populated when there is no effective category yet. */
   suggestedIngredients: Ingredient[];
 }
 

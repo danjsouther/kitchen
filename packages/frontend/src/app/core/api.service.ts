@@ -101,10 +101,10 @@ export class ApiService {
 
   // -- Products ------------------------------------------------------------
   //
-  // The Open Food Facts mirror is global and read-only, so there is no create,
-  // update or delete here. The only writes are on this household's bindings.
+  // The Open Food Facts mirror is global and import-owned. Writes here are only
+  // household category overrides. The default category is live ranked consensus.
 
-  /** Everything a scan needs: the product, the binding, and suggestions. */
+  /** Product, override, consensus, and effective category for a barcode. */
   lookupBarcode(code: string) {
     return this.get<M.BarcodeLookup>(`/products/by-barcode/${encodeURIComponent(code)}`);
   }
@@ -117,7 +117,7 @@ export class ApiService {
     return this.get<M.ProductBindingRow[]>('/products/bindings');
   }
 
-  /** Points a barcode at an ingredient for this household. */
+  /** Pins this household's category override for a barcode. */
   bindProduct(barcode: string, ingredientId: number) {
     return this.put<M.BarcodeLookup>(
       `/products/${encodeURIComponent(barcode)}/binding`,
@@ -125,6 +125,7 @@ export class ApiService {
     );
   }
 
+  /** Clears the override so this household follows consensus again. */
   unbindProduct(barcode: string) {
     return this.delete<M.BarcodeLookup>(`/products/${encodeURIComponent(barcode)}/binding`);
   }
