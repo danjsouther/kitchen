@@ -43,20 +43,21 @@ export interface IngredientCategory {
  * quantity in this app is: they are Decimals server-side, and routing a density
  * like 0.53 through a JavaScript float to get it there defeats the point.
  *
- * Every field is optional and omitting one means "unchanged". Note that
- * omitting is NOT the same as clearing — the API has no way to unset a density
- * once set, which is a real gap rather than an oversight in this type.
+ * **Absent and null differ.** Omitting a field leaves it unchanged; sending
+ * `null` clears it, which is the only way to say that an ingredient someone
+ * once gave a density does not actually have one. `name` is the exception — it
+ * is `NOT NULL`, and the API rejects a null one.
  */
 export interface IngredientWrite {
   name?: string;
-  categoryId?: number;
-  defaultUnitId?: number;
-  /** Grams per millilitre. Absent means unknown — never assume 1.0. */
-  gramsPerMl?: string;
+  categoryId?: number | null;
+  defaultUnitId?: number | null;
+  /** Grams per millilitre. Null means unknown — never assume 1.0. */
+  gramsPerMl?: string | null;
   /** Grams per single item: one egg, one onion. */
-  gramsPerPiece?: string;
-  shelfLifeDays?: number;
-  note?: string;
+  gramsPerPiece?: string | null;
+  shelfLifeDays?: number | null;
+  note?: string | null;
 }
 
 /** Mirrors CreatePantryItemDto / UpdatePantryItemDto. */

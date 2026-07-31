@@ -132,6 +132,10 @@ export class IngredientsService {
       data.name = dto.name.trim();
       data.slug = slugify(dto.name);
     }
+    // Null is passed straight through, and that is the point: it is how the
+    // caller says "this has no density" as opposed to "I am not touching the
+    // density". Absent stays absent, so a partial edit still leaves the rest
+    // alone.
     for (const field of [
       'categoryId',
       'defaultUnitId',
@@ -228,11 +232,18 @@ export class IngredientsService {
    * Without this a bad id surfaces as a raw foreign-key violation — a 500 with a
    * constraint name in it, rather than a message naming the field at fault.
    */
+  /**
+   * Checks the ids a write points at.
+   *
+   * Null is skipped rather than looked up: on an update it means "clear this
+   * link", and there is no row with a null id to find. Handing it to Prisma
+   * anyway is a query error — a 500 for what is a perfectly ordinary edit.
+   */
   private async assertReferencesExist(dto: {
-    categoryId?: number;
-    defaultUnitId?: number;
+    categoryId?: number | null;
+    defaultUnitId?: number | null;
   }): Promise<void> {
-    if (dto.categoryId !== undefined) {
+    if (dto.categoryId !== undefined && dto.categoryId !== null) {
       const category = await this.db.ingredientCategory.findUnique({
         where: { id: dto.categoryId },
         select: { id: true },
@@ -242,7 +253,7 @@ export class IngredientsService {
       }
     }
 
-    if (dto.defaultUnitId !== undefined) {
+    if (dto.defaultUnitId !== undefined && dto.defaultUnitId !== null) {
       const unit = await this.db.unit.findFirst({
         where: { id: dto.defaultUnitId },
         select: { id: true },

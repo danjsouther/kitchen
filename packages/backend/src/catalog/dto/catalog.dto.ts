@@ -9,6 +9,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { UnitKind } from '@recipes/shared-types';
 
@@ -100,41 +101,58 @@ export class CreateIngredientDto {
   note?: string;
 }
 
+/**
+ * A partial edit, where **absent and null mean different things**.
+ *
+ * Absent is "leave this alone". Explicit `null` is "this genuinely has no
+ * value" — the only way to say that an ingredient someone gave a density to
+ * does not really have one, and without it a wrong density is permanent.
+ *
+ * `@IsOptional()` is what permits the null: it skips every other validator when
+ * the value is null or undefined. That is deliberate on the nullable columns
+ * and wrong on `name`, which is `NOT NULL` — hence `@ValidateIf` there, so an
+ * absent name is skipped but a null one is rejected as the bad request it is
+ * rather than reaching Postgres and coming back a 500.
+ */
 export class UpdateIngredientDto {
-  @IsOptional()
-  @IsString()
+  @ValidateIf((_dto, value) => value !== undefined)
+  @IsString({ message: 'name cannot be null — an ingredient has to be called something.' })
   @MinLength(1)
   @MaxLength(120)
   name?: string;
 
+  /** Null clears the category. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @IsPositive()
-  categoryId?: number;
+  categoryId?: number | null;
 
+  /** Null clears the usual unit. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @IsPositive()
-  defaultUnitId?: number;
+  defaultUnitId?: number | null;
 
+  /** Null means "this has no known density", which is not the same as 0. */
   @IsOptional()
   @IsNumberString({}, { message: 'gramsPerMl must be a number.' })
-  gramsPerMl?: string;
+  gramsPerMl?: string | null;
 
+  /** Null means "one of these has no meaningful weight" — a sprig, a splash. */
   @IsOptional()
   @IsNumberString({}, { message: 'gramsPerPiece must be a number.' })
-  gramsPerPiece?: string;
+  gramsPerPiece?: string | null;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  shelfLifeDays?: number;
+  shelfLifeDays?: number | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  note?: string;
+  note?: string | null;
 }

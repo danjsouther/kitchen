@@ -205,7 +205,10 @@ import type {
                       @if (firstError(editForm.gramsPerMl()); as message) {
                         <mat-error>{{ message }}</mat-error>
                       } @else {
-                        <mat-hint>Lets cups and grams be compared. Water is 1.</mat-hint>
+                        <mat-hint>
+                          Lets cups and grams be compared. Water is 1; empty
+                          means unknown.
+                        </mat-hint>
                       }
                     </mat-form-field>
 
@@ -215,7 +218,9 @@ import type {
                       @if (firstError(editForm.gramsPerPiece()); as message) {
                         <mat-error>{{ message }}</mat-error>
                       } @else {
-                        <mat-hint>One egg ≈ 50, one onion ≈ 150.</mat-hint>
+                        <mat-hint>
+                          One egg ≈ 50, one onion ≈ 150; empty means unknown.
+                        </mat-hint>
                       }
                     </mat-form-field>
 
@@ -514,27 +519,34 @@ export class IngredientsComponent {
   }
 
   /**
-   * Drops empty fields rather than sending them.
+   * The whole form as a payload, with emptied fields sent as **null**.
    *
-   * An empty string would fail the backend's IsNumberString check, and sending
-   * a blank density is not how you clear one anyway — the API treats an absent
-   * field as "leave alone".
+   * Null rather than omitted, because this is a full editor: the fields on
+   * screen are the ingredient's whole physical description, so a box the user
+   * emptied is a statement — "this has no density" — and omitting it would
+   * quietly mean "leave the old one", which is how a wrong density used to
+   * become permanent.
+   *
+   * An empty string would not do: the API validates a supplied density with
+   * IsNumberString and would reject it. Null is the value that carries the
+   * meaning, and the API reads it as such.
    */
   private clean(): IngredientWrite {
-    const out: IngredientWrite = {};
     const form = this.editModel();
 
-    if (form.name.trim()) out.name = form.name.trim();
-    if (form.categoryId) out.categoryId = Number(form.categoryId);
-    if (form.defaultUnitId) out.defaultUnitId = Number(form.defaultUnitId);
-    if (form.gramsPerMl.trim()) out.gramsPerMl = form.gramsPerMl.trim();
-    if (form.gramsPerPiece.trim()) {
-      out.gramsPerPiece = form.gramsPerPiece.trim();
-    }
-    if (form.shelfLifeDays.trim()) out.shelfLifeDays = Number(form.shelfLifeDays.trim());
-    if (form.note.trim()) out.note = form.note.trim();
-
-    return out;
+    return {
+      name: form.name.trim(),
+      // 0 is the "nothing chosen" sentinel the selects use, since Signal Forms
+      // will not hold a null; it maps back to null on the way out.
+      categoryId: form.categoryId ? Number(form.categoryId) : null,
+      defaultUnitId: form.defaultUnitId ? Number(form.defaultUnitId) : null,
+      gramsPerMl: form.gramsPerMl.trim() || null,
+      gramsPerPiece: form.gramsPerPiece.trim() || null,
+      shelfLifeDays: form.shelfLifeDays.trim()
+        ? Number(form.shelfLifeDays.trim())
+        : null,
+      note: form.note.trim() || null,
+    };
   }
 }
 

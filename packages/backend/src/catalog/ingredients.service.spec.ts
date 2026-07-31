@@ -1,4 +1,31 @@
-import { buildIngredientWhere, preferOwn } from './ingredients.service';
+import { ForbiddenException } from '@nestjs/common';
+
+import { IngredientsService, buildIngredientWhere, preferOwn } from './ingredients.service';
+
+/**
+ * A stand-in for the scoped Prisma client, implementing only what `update`
+ * calls. Anything else is absent on purpose: a silent `undefined` would let a
+ * broken query pass.
+ */
+function makeDb(existing: Record<string, unknown> | null) {
+  return {
+    ingredient: {
+      findFirst: jest.fn().mockResolvedValue(existing),
+      update: jest.fn(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 1, ...data }),
+      ),
+    },
+    ingredientCategory: { findUnique: jest.fn().mockResolvedValue({ id: 3 }) },
+    unit: { findFirst: jest.fn().mockResolvedValue({ id: 7 }) },
+  };
+}
+
+const OWNED = { id: 1, householdId: 2, name: 'semolina' };
+
+/** The `data` the update was called with. */
+function writtenData(mock: jest.Mock): Record<string, unknown> {
+  return mock.mock.calls[0][0].data as Record<string, unknown>;
+}
 
 /** Pulls the slug conditions out of the OR block for readable assertions. */
 function slugMatches(term: string): string[] {
@@ -97,5 +124,79 @@ describe('preferOwn', () => {
   it('is order-independent about which row it sees first', () => {
     expect(preferOwn([mine, global])).toEqual([mine]);
     expect(preferOwn([global, mine])).toEqual([mine]);
+  });
+});
+
+/**
+ * Absent and null mean different things here, and getting that wrong is what
+ * made a mistaken density permanent: with only "absent means leave alone",
+ * there was no value the editor could send to take one away.
+ */
+describe('IngredientsService.update', () => {
+  it('clears a physical value given an explicit null', async () => {
+    const db = makeDb(OWNED);
+    const service = new IngredientsService(db as never);
+
+    await service.update(1, { gramsPerMl: null, gramsPerPiece: null });
+
+    const data = writtenData(db.ingredient.update);
+    expect(data.gramsPerMl).toBeNull();
+    expect(data.gramsPerPiece).toBeNull();
+  });
+
+  it('leaves a value alone when the field is absent', async () => {
+    const db = makeDb(OWNED);
+    const service = new IngredientsService(db as never);
+
+    await service.update(1, { note: 'unchanged elsewhere' });
+
+    const data = writtenData(db.ingredient.update);
+    expect('gramsPerMl' in data).toBe(false);
+    expect('shelfLifeDays' in data).toBe(false);
+  });
+
+  it('still writes a supplied value', async () => {
+    const db = makeDb(OWNED);
+    const service = new IngredientsService(db as never);
+
+    await service.update(1, { gramsPerMl: '0.53', shelfLifeDays: 30 });
+
+    const data = writtenData(db.ingredient.update);
+    expect(data.gramsPerMl).toBe('0.53');
+    expect(data.shelfLifeDays).toBe(30);
+  });
+
+  // Null here means "no category", so there is no id to look up. Passing it to
+  // Prisma anyway was a query error — a 500 for an ordinary edit.
+  it('clears a link without looking the missing id up', async () => {
+    const db = makeDb(OWNED);
+    const service = new IngredientsService(db as never);
+
+    await service.update(1, { categoryId: null, defaultUnitId: null });
+
+    expect(db.ingredientCategory.findUnique).not.toHaveBeenCalled();
+    expect(db.unit.findFirst).not.toHaveBeenCalled();
+
+    const data = writtenData(db.ingredient.update);
+    expect(data.categoryId).toBeNull();
+    expect(data.defaultUnitId).toBeNull();
+  });
+
+  it('still checks a link that was actually supplied', async () => {
+    const db = makeDb(OWNED);
+    const service = new IngredientsService(db as never);
+
+    await service.update(1, { categoryId: 3 });
+
+    expect(db.ingredientCategory.findUnique).toHaveBeenCalled();
+  });
+
+  it('refuses to edit a shared row in place', async () => {
+    const db = makeDb({ id: 1, householdId: null, name: 'flour' });
+    const service = new IngredientsService(db as never);
+
+    await expect(service.update(1, { gramsPerMl: null })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
