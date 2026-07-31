@@ -150,6 +150,7 @@ then re-enters its own.
 | `npm run prisma:studio` | Browse the database |
 | `npm run seed` | Load units, categories and the ingredient catalog |
 | `npm run verify:tenancy -w packages/backend` | Prove household isolation against a real database |
+| `npm run smoke` | Walk the whole loop over HTTP against a running server |
 
 The backend runs on **3001** and the Angular dev server on **4201**, which proxies
 `/api` to it (`packages/frontend/proxy.conf.json`).
@@ -275,6 +276,39 @@ load, because it spends the household's own money.
 ([test/no-network.ts](packages/backend/test/no-network.ts)), so a test that
 quietly starts depending on a live API call fails loudly instead of becoming slow,
 costly and flaky.
+
+## The smoke run walks the whole thing
+
+```sh
+npm run dev:up     # in one terminal
+npm run smoke      # in another
+```
+
+[`packages/backend/scripts/smoke.ts`](packages/backend/scripts/smoke.ts) registers a
+scratch household and drives the real loop: paste a recipe and confirm the draft,
+scale it, stock the pantry, plan three dinners at double the servings, generate a
+list against a store with its own aisle order, tick items off with prices, receive
+them, cook a meal, and undo it. 51 checks, then it deletes the household it made.
+
+**Over HTTP, deliberately.** Calling the services directly would re-test what the
+unit suites already cover and skip every seam that has actually broken here — DTO
+validation, the `/api` prefix, the guards, and the interceptor that renders
+Decimals as strings. It needs a running server for the same reason, and says so
+plainly rather than timing out if it cannot find one.
+
+It is not part of `npm test`, which blocks network access on purpose. Prisma
+appears in it for exactly one job: removing the scratch household afterwards,
+from a `finally`, since no endpoint deletes one and a failed run would otherwise
+leave balances behind for the next one to trip over.
+
+It earns its keep by pinning the claims this README makes where they are easiest
+to break by accident — that an unconvertible balance reports `null` while an
+empty pantry reports `0`, that undo restores every balance exactly, and that a
+reversed cook session is stamped rather than deleted.
+
+(The plan called this `scripts/smoke.js`. It lives with `verify-tenancy.ts`
+instead, because the root `scripts/` are plain CommonJS and the generated Prisma
+client is TypeScript, so cleanup could not run from there.)
 
 ## Paste-and-parse assumes it is wrong
 

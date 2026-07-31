@@ -14,7 +14,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "seed": "tsx prisma/seed/index.ts",
-    "verify:tenancy": "tsx scripts/verify-tenancy.ts"
+    "verify:tenancy": "tsx scripts/verify-tenancy.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
