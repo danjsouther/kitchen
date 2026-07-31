@@ -3,6 +3,7 @@ import {
   Component,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from "@angular/core";
@@ -61,15 +62,26 @@ import type {
           />
         }
 
+        <!--
+          [ngModel] + (ngModelChange) rather than the [(ngModel)] shorthand:
+          these are signals, and the banana-in-a-box form would try to assign to
+          the signal reference itself instead of calling .set().
+        -->
         <div class="grid">
           <mat-form-field appearance="outline">
             <mat-label>How much</mat-label>
-            <input matInput [(ngModel)]="quantity" name="quantity" inputmode="decimal" />
+            <input
+              matInput
+              [ngModel]="quantity()"
+              (ngModelChange)="quantity.set($event)"
+              name="quantity"
+              inputmode="decimal"
+            />
           </mat-form-field>
 
           <mat-form-field appearance="outline">
             <mat-label>Unit</mat-label>
-            <mat-select [(ngModel)]="unitId" name="unitId">
+            <mat-select [ngModel]="unitId()" (ngModelChange)="unitId.set($event)" name="unitId">
               @for (unit of units(); track unit.id) {
                 <mat-option [value]="unit.id">{{ unit.name }}</mat-option>
               }
@@ -78,7 +90,11 @@ import type {
 
           <mat-form-field appearance="outline">
             <mat-label>Where</mat-label>
-            <mat-select [(ngModel)]="locationId" name="locationId">
+            <mat-select
+              [ngModel]="locationId()"
+              (ngModelChange)="locationId.set($event)"
+              name="locationId"
+            >
               @for (location of locations(); track location.id) {
                 <mat-option [value]="location.id">{{ location.name }}</mat-option>
               }
@@ -87,12 +103,18 @@ import type {
 
           <mat-form-field appearance="outline">
             <mat-label>Brand</mat-label>
-            <input matInput [(ngModel)]="brand" name="brand" />
+            <input matInput [ngModel]="brand()" (ngModelChange)="brand.set($event)" name="brand" />
           </mat-form-field>
 
           <mat-form-field appearance="outline">
             <mat-label>Use by</mat-label>
-            <input matInput type="date" [(ngModel)]="expiresOn" name="expiresOn" />
+            <input
+              matInput
+              type="date"
+              [ngModel]="expiresOn()"
+              (ngModelChange)="expiresOn.set($event)"
+              name="expiresOn"
+            />
             <mat-hint>
               @if (!lot()) {
                 Left blank, the ingredient's shelf life suggests one.
@@ -150,28 +172,56 @@ export class PantryItemFormComponent {
   readonly busy = signal(false);
   readonly error = signal("");
 
-  ingredientId: number | null = null;
-  quantity = "";
-  unitId: number | null = null;
-  locationId: number | null = null;
-  brand = "";
-  expiresOn = "";
+  /**
+   * Form state derived from the `lot` input, but still freely editable.
+   *
+   * linkedSignal rather than one-time seeding in the constructor. The parent
+   * keeps this component alive when you click from one lot straight to another
+   * — only the input changes — so constructor seeding ran once and the fields
+   * kept showing the *previous* lot's values under the new lot's name. Saving
+   * then wrote those numbers onto the wrong lot.
+   *
+   * linkedSignal recomputes when its source changes, which is precisely the
+   * behaviour that was missing, while staying writable so typing still works.
+   */
+  readonly ingredientId = linkedSignal<number | null>(() => this.lot()?.ingredient.id ?? null);
+  readonly quantity = linkedSignal(() => this.lot()?.quantity ?? "");
+  readonly unitId = linkedSignal<number | null>(() => this.lot()?.unit.id ?? null);
+  readonly brand = linkedSignal(() => this.lot()?.brand ?? "");
+  readonly expiresOn = linkedSignal(() => this.lot()?.expiresOn?.slice(0, 10) ?? "");
 
-  constructor() {
-    // Seeding from inputs happens once, after they are bound. An effect would
-    // re-run and stamp on whatever the user had typed.
-    queueMicrotask(() => this.seed());
-  }
+  /**
+   * Uses the source/computation form so a location the user picked by hand is
+   * preserved when the locations list itself reloads, rather than snapping back
+   * to the first entry.
+   */
+  readonly locationId = linkedSignal<
+    { lot: PantryLot | null; locations: StorageLocation[] },
+    number | null
+  >({
+    source: () => ({ lot: this.lot(), locations: this.locations() }),
+    computation: (source, previous) => {
+      if (source.lot) return source.lot.location.id;
+      const chosen = previous?.value ?? null;
+      if (chosen !== null && source.locations.some((l) => l.id === chosen)) return chosen;
+      return source.locations[0]?.id ?? null;
+    },
+  });
 
   ready(): boolean {
-    const hasIngredient = this.lot() !== null || this.ingredientId !== null;
-    return hasIngredient && this.quantity.trim() !== "" && this.unitId !== null && this.locationId !== null;
+    const hasIngredient = this.lot() !== null || this.ingredientId() !== null;
+    return (
+      hasIngredient &&
+      this.quantity().trim() !== "" &&
+      this.unitId() !== null &&
+      this.locationId() !== null
+    );
   }
 
   onPicked(item: Ingredient): void {
-    this.ingredientId = item.id;
+    this.ingredientId.set(item.id);
     // A sensible default the user can override, rather than an empty select.
-    if (item.defaultUnitId && this.unitId === null) this.unitId = item.defaultUnitId;
+    if (item.defaultUnitId && this.unitId() === null) this.unitId.set(item.defaultUnitId);
     this.error.set("");
   }
 
@@ -180,7 +230,7 @@ export class PantryItemFormComponent {
     this.api.createIngredient({ name }).subscribe({
       next: (created) => {
         this.busy.set(false);
-        this.ingredientId = created.id;
+        this.ingredientId.set(created.id);
         this.notify.success(
           `Added ${created.name} to the catalog. It has no density yet, so it may not combine with other units.`,
         );
@@ -199,20 +249,21 @@ export class PantryItemFormComponent {
 
     const existing = this.lot();
     const body: PantryItemWrite = {
-      quantity: this.quantity.trim(),
-      unitId: Number(this.unitId),
-      locationId: Number(this.locationId),
+      quantity: this.quantity().trim(),
+      unitId: Number(this.unitId()),
+      locationId: Number(this.locationId()),
     };
-    if (this.brand.trim()) body.brand = this.brand.trim();
+    if (this.brand().trim()) body.brand = this.brand().trim();
 
     // An empty date means "leave it to the shelf life" when adding, but means
     // "clear it" when editing — hence null rather than simply omitting.
-    if (this.expiresOn) body.expiresOn = new Date(this.expiresOn).toISOString();
+    const expires = this.expiresOn();
+    if (expires) body.expiresOn = new Date(expires).toISOString();
     else if (existing) body.expiresOn = null;
 
     const request = existing
       ? this.api.updatePantryItem(existing.id, body)
-      : this.api.addPantryItem({ ...body, ingredientId: Number(this.ingredientId) });
+      : this.api.addPantryItem({ ...body, ingredientId: Number(this.ingredientId()) });
 
     request.subscribe({
       next: () => {
@@ -240,19 +291,6 @@ export class PantryItemFormComponent {
         this.notify.error(error, "Could not discard that lot.");
       },
     });
-  }
-
-  private seed(): void {
-    const existing = this.lot();
-    if (!existing) {
-      this.locationId = this.locations()[0]?.id ?? null;
-      return;
-    }
-    this.quantity = existing.quantity;
-    this.unitId = existing.unit.id;
-    this.locationId = existing.location.id;
-    this.brand = existing.brand ?? "";
-    this.expiresOn = existing.expiresOn ? existing.expiresOn.slice(0, 10) : "";
   }
 
   /** Surfaces the server's validation message rather than a generic one. */

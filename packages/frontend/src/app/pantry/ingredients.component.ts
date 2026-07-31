@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, inject, input, signal } from "@angular/core";
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  inject,
+  input,
+  linkedSignal,
+  signal,
+} from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -64,8 +72,8 @@ import type {
               <mat-label>Search the catalog</mat-label>
               <input
                 matInput
-                [(ngModel)]="query"
-                (ngModelChange)="search()"
+                [ngModel]="query()"
+                (ngModelChange)="query.set($event)"
                 name="q"
                 placeholder="flour, yogurt, onion…"
                 autocomplete="off"
@@ -113,8 +121,8 @@ import type {
         </mat-card>
       }
 
-      @if (!loading() && results().length === 0 && query.length >= 2) {
-        <p class="empty muted">Nothing matched “{{ query }}”.</p>
+      @if (!loading() && results().length === 0 && query().length >= 2) {
+        <p class="empty muted">Nothing matched “{{ query() }}”.</p>
       }
 
       @for (item of results(); track item.id) {
@@ -269,7 +277,19 @@ export class IngredientsComponent {
    */
   readonly q = input("");
 
-  query = "";
+  /**
+   * The search box, seeded from ?q= but freely editable afterwards.
+   *
+   * linkedSignal rather than a one-time copy: the router reuses this component
+   * across navigations within the same route, so arriving at ?q=flour from
+   * ?q=yogurt would otherwise leave the old term in the box.
+   *
+   * The ?? "" is load-bearing. When the parameter is absent the router binds
+   * the input as undefined, which overrides input()'s own default — so without
+   * it `query` is undefined and every later .trim() throws.
+   */
+  readonly query = linkedSignal(() => this.q() ?? "");
+
   categoryId: number | null = null;
   draftName = "";
 
@@ -281,13 +301,11 @@ export class IngredientsComponent {
     this.api.categories().subscribe({ next: (c) => this.categories.set(c) });
     this.api.units().subscribe({ next: (u) => this.units.set(u) });
 
-    // After inputs are bound, so an inbound ?q= is honoured on first load.
-    //
-    // The ?? "" is load-bearing: when the query parameter is absent the router
-    // binds the input as undefined, which overrides input()'s own default and
-    // leaves `query` undefined for every later .trim().
-    queueMicrotask(() => {
-      this.query = this.q() ?? "";
+    // Re-runs whenever the search term changes, including when an inbound ?q=
+    // resets it. Reading a signal and firing a request is a genuine side
+    // effect, which is what effect() is for — it is not deriving state.
+    effect(() => {
+      this.query();
       this.search();
     });
   }
@@ -313,7 +331,7 @@ export class IngredientsComponent {
   search(): void {
     const token = ++this.searchToken;
     this.loading.set(true);
-    const q = (this.query ?? "").trim();
+    const q = this.query().trim();
 
     this.api.searchIngredients(q, 40, this.categoryId ?? undefined).subscribe({
       next: (items) => {
@@ -350,7 +368,7 @@ export class IngredientsComponent {
   }
 
   startCreate(): void {
-    this.draftName = this.query.trim();
+    this.draftName = this.query().trim();
     this.creating.set(true);
   }
 
@@ -364,8 +382,7 @@ export class IngredientsComponent {
         this.busy.set(false);
         this.creating.set(false);
         this.notify.success(`Added ${created.name}. Fill in its density next.`);
-        this.query = created.name;
-        this.search();
+        this.query.set(created.name);
       },
       error: (error: unknown) => {
         this.busy.set(false);
