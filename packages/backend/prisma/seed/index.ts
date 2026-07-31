@@ -50,9 +50,37 @@ interface IngredientSeed {
   aliases?: string[];
 }
 
+/**
+ * Where the seed JSON lives, which differs depending on how this file is run.
+ *
+ * Run from source (`npm run seed` via tsx) __dirname is prisma/seed, and the
+ * data sits right alongside. Run compiled (`node dist/prisma/seed/index.js`,
+ * which is what the container does — tsx is pruned from the production image)
+ * __dirname is dist/prisma/seed, and there is no data directory there at all:
+ * tsc compiles .ts and does not copy .json that is read through fs at runtime.
+ *
+ * Resolved once, with a clear error rather than a bare ENOENT, because the
+ * failure mode this had was silent: seeding is non-fatal on boot by design, so
+ * a missing catalog surfaced much later as conversions that looked broken.
+ */
+const SEED_DATA_DIR = (() => {
+  const candidates = [
+    join(__dirname, 'data'),
+    // From dist/prisma/seed back to the source tree, which the image ships.
+    resolve(__dirname, '../../../prisma/seed/data'),
+  ];
+
+  const found = candidates.find((dir) => existsSync(join(dir, 'units.json')));
+  if (!found) {
+    throw new Error(
+      `Seed data not found. Looked in:\n  ${candidates.join('\n  ')}`,
+    );
+  }
+  return found;
+})();
+
 function readSeed<T>(file: string): T[] {
-  const path = join(__dirname, 'data', file);
-  return JSON.parse(readFileSync(path, 'utf8')) as T[];
+  return JSON.parse(readFileSync(join(SEED_DATA_DIR, file), 'utf8')) as T[];
 }
 
 async function main(): Promise<void> {

@@ -33,6 +33,13 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # These override the values env_file pulls from .env, which carry local-dev
+      # defaults chosen to dodge port clashes on the host. Inside the container
+      # there is nothing to clash with, and 3000 is what nginx proxies to.
+      PORT: 3000
+      # The app and the API share an origin behind nginx, so this is only ever
+      # used by the CORS allowlist for a direct, non-proxied call.
+      FRONTEND_URL: http://localhost:8080
     # So ConfigModule / prisma resolve the same root .env as local dev
     # (env_file injects vars; the mount makes the file visible at /repo/.env).
     volumes:

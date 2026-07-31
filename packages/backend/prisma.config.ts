@@ -12,6 +12,13 @@ import { defineConfig } from 'prisma/config';
 const rootEnv = resolve(__dirname, '../../.env');
 if (existsSync(rootEnv)) loadEnv({ path: rootEnv });
 
+// Prisma 7 requires the connection URL here rather than in schema.prisma.
+// That makes this file load-bearing for `migrate deploy` inside the container,
+// which is why dotenv is a runtime dependency: pruning it would leave the
+// production image unable to read its own Prisma config.
+//
+// In the container there is no repo-root .env to read; DATABASE_URL is injected
+// by docker-compose instead, and the existsSync guard above makes that fine.
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {

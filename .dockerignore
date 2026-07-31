@@ -1,0 +1,47 @@
+# Keeps the build context small, but more importantly keeps host state out of
+# the image. `COPY packages/backend packages/backend` would otherwise drop a
+# host-built node_modules and dist on top of what `npm ci` just installed —
+# including native binaries compiled for the host OS rather than the container.
+node_modules
+**/node_modules
+
+# Build output. Rebuilt inside the image; copying it in risks shipping a stale
+# bundle that silently disagrees with the source next to it.
+dist
+**/dist
+.angular
+**/.angular
+*.tsbuildinfo
+**/*.tsbuildinfo
+out-tsc
+**/out-tsc
+
+# Generated Prisma client — regenerated in the builder stage by design, so that
+# the query engine matches the container's platform and not the host's.
+packages/backend/generated
+
+# Secrets. docker-compose mounts .env at runtime; it must never be baked into
+# an image layer, where it would persist even if a later layer deleted it.
+.env
+.env.local
+.env.*.local
+
+# Local-only and irrelevant to a build.
+.git
+.gitignore
+.gitattributes
+.github
+.claude
+.vscode
+.idea
+.playwright-mcp
+uploads
+**/uploads
+*.log
+npm-debug.log*
+Dockerfile
+**/Dockerfile
+docker-compose*.yml
+README.md
+CHANGELOG.md
+ERD.md

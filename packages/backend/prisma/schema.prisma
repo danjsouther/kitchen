@@ -21,6 +21,10 @@ generator client {
   importFileExtension = "js"
 }
 
+// Prisma 7 no longer accepts `url` here — the connection URL must live in
+// prisma.config.ts. That is why dotenv is a runtime dependency rather than a
+// dev one: the production image has to be able to load that config to run
+// `migrate deploy` on boot.
 datasource db {
   provider = "postgresql"
 }

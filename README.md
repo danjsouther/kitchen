@@ -52,6 +52,24 @@ than failing a build.
 ```sh
 npm install
 cp .env.example .env         # then fill in the blanks — see below
+npm run dev:up               # Postgres, migrations, catalog seed, then watch
+```
+
+`dev:up` is the whole loop: it starts the Postgres container, waits for it to actually
+accept connections, applies migrations, seeds the catalog, and hands off to `npm run dev`.
+Migrations are fatal if they fail; seeding is not, since a stale catalog should not stop
+you working. Re-running it is safe — both steps are idempotent.
+
+To stop:
+
+```sh
+npm run dev:down             # stop containers, keep the data
+npm run dev:down -- --destroy   # ...and delete the database volume
+```
+
+The steps individually, if you want them:
+
+```sh
 docker compose up -d postgres
 npm run prisma:migrate       # create the schema
 npm run seed                 # 40 units, 16 categories, 311 ingredients
@@ -86,8 +104,24 @@ offers to let you fill the value in.
 docker compose up -d --build
 ```
 
+That builds three images and serves the app at **http://localhost:8080**. Nothing else is
+needed: the backend container applies migrations and seeds the catalog on every boot, so a
+first run against an empty volume comes up ready to use.
+
+The frontend image is nginx serving the built bundle, and it proxies `/api` to the backend
+over the compose network — so the app and the API share an origin and the session cookie
+stays first-party. No CORS, and no `SameSite=None`.
+
 Postgres and the frontend bind to loopback only. Put a reverse proxy in front if you want
-the app reachable beyond the host.
+the app reachable beyond the host, and set `FRONTEND_URL` to match.
+
+Two things worth knowing before changing the compose file:
+
+- **The backend listens on 3000 inside the container**, not the 3001 in `.env`. That local
+  default exists only to dodge a port clash on the host; compose overrides it, and
+  `nginx.conf` proxies to `backend:3000`.
+- **`nginx.conf` must not strip the `/api` prefix.** The API genuinely serves `/api/*`
+  (`setGlobalPrefix('api')`), so a rewrite that removes it turns every call into a 404.
 
 ## AI suggestions are bring-your-own-key
 
@@ -341,5 +375,22 @@ Under construction. Built so far:
 - [x] "What can I cook" — deterministic pantry match, plus the BYOK Claude tab
 - [x] Shopping lists — generation from the plan, aisle order, price capture, receive-to-pantry
 - [x] Angular frontend — auth, recipes, parse review, pantry, planner, cook, shopping
+- [x] Container build — backend and frontend images, `docker compose up` works from a
+      clean clone, migrations and catalog seeding on boot
+- [x] `dev:up` / `dev:down`
+
+Not done yet, and worth knowing before you rely on it:
+
+- [ ] **Write screens for data the API already accepts.** There is no manual recipe form
+      (`/recipes/new`), no way to add or edit a pantry lot, no way to add a meal to the
+      planner, no catalog admin (`/pantry/ingredients`), and no store aisle editing. The
+      endpoints all exist and are tested; the screens do not. The catalog one bites
+      hardest: density is exactly what turns "not countable" into a number, and right now
+      there is no way to add one through the UI.
+- [ ] `ERD.md` — the schema is documented only by the comments in `schema.prisma`
+- [ ] `scripts/smoke.js` — the end-to-end run described in the plan. The loop has been
+      walked by hand against a live database, but nothing re-runs it.
+- [ ] Recipe images — `Recipe.imagePath` exists in the schema; no upload endpoint or UI
+- [ ] PWA / offline read cache
 
 The full plan lives in `~/.claude/plans/help-me-spec-out-snuggly-hollerith.md`.
