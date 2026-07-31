@@ -157,6 +157,9 @@ The backend runs on **3001** and the Angular dev server on **4201**, which proxi
 
 ## How tenancy is enforced
 
+The tables and how they relate are mapped in [`ERD.md`](ERD.md), which is also
+where the three-way split below is set out per table.
+
 Guards decide *who you are*; they say nothing about *whose data you are touching*. One
 service method that forgets a `where` clause is all it takes to serve another household's
 recipes, so the filter is applied in a
@@ -477,22 +480,22 @@ Under construction. Built so far:
 - [x] Pantry write screens — add, edit and discard a lot
 - [x] Catalog admin (`/pantry/ingredients`) — densities, item weights, shelf life, with
       copy-on-write for shared ingredients
+- [x] Planner write screen — add a meal to any day and slot, either a recipe or a
+      free-text entry like "leftovers"
+- [x] Store aisle order (`/settings/stores/:id`) — every category placed, so the walk is a
+      total order
+- [x] Editing a saved recipe (`/recipes/:id/edit`) — the same form as `/recipes/new`, and
+      the one screen where a field can be *cleared* as well as set
+
+- [x] Clearing a physical value — a density or item weight can be taken away again, not
+      only set
+- [x] End-to-end smoke run — `npm run smoke` walks paste → plan → shop → cook → undo
+      against the running API, 51 checks
+- [x] [`ERD.md`](ERD.md) — the tables, the relationships, and which nullable columns are
+      nullable on purpose
 
 Not done yet, and worth knowing before you rely on it:
 
-- [ ] **The remaining write screens.** There is still no way to add a meal to the planner
-      and no store aisle editing. The endpoints exist and are tested; the screens do not.
-      (`/recipes/new` is done — a recipe can now be written out by hand as well as pasted.)
-- [ ] **Editing a saved recipe.** `PATCH /recipes/:id` exists and is tested, but nothing
-      calls it: `/recipes/new` only creates. A typo in a saved recipe currently means
-      writing it again.
-- [ ] **Clearing a physical value.** The catalog form can set a density or item weight but
-      cannot unset one — the API treats an absent field as "leave alone", so there is no way
-      to express "this genuinely has no density". Fixing it properly means the API accepting
-      an explicit null, not the UI sending an empty string.
-- [ ] `ERD.md` — the schema is documented only by the comments in `schema.prisma`
-- [ ] `scripts/smoke.js` — the end-to-end run described in the plan. The loop has been
-      walked by hand against a live database, but nothing re-runs it.
 - [ ] Recipe images — `Recipe.imagePath` exists in the schema; no upload endpoint or UI
 - [ ] PWA / offline read cache
 
