@@ -1,0 +1,600 @@
+// Recipe, pantry and meal planning — Prisma schema
+//
+// Conventions:
+//   * Every quantity and price is Decimal, never Float. Floating point on 0.33 cups
+//     or $3.99 compounds badly across scaling and aggregation.
+//   * Tenant-scoped rows carry householdId. Catalog rows (Unit, Ingredient,
+//     IngredientCategory) use a NULLABLE householdId: null means seeded/global,
+//     non-null means a household's private addition. This is what keeps the
+//     multi-tenant future a config change rather than a migration everywhere.
+//   * Table names are snake_case via @@map; fields use createdOn/deletedOn naming.
+//
+// Regenerate ERD.md by hand when this changes — it is documentation, not a build artifact.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+  // Emit relative imports ending in .js rather than .ts. Without this the
+  // generated client keeps .ts extensions after compilation and the built output
+  // dies at runtime with "Cannot find module './internal/class.ts'".
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  MEMBER
+  ADMIN
+}
+
+/// The physical dimension a unit measures. Conversion within a kind is arithmetic;
+/// across kinds it needs the ingredient's density and/or piece weight.
+enum UnitKind {
+  MASS
+  VOLUME
+  COUNT
+}
+
+enum TagKind {
+  CUISINE
+  MEAL
+  DIET
+  FREE
+}
+
+/// Movement kinds in the append-only pantry ledger.
+enum TxKind {
+  PURCHASE
+  CONSUME
+  ADJUST
+  DISCARD
+  COOK
+}
+
+enum MealSlot {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum PlanStatus {
+  PLANNED
+  COOKED
+  SKIPPED
+}
+
+enum ListStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+/// Why a line ended up on a shopping list.
+enum ItemSource {
+  RECIPE
+  PAR
+  MANUAL
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+model Household {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdOn DateTime @default(now())
+
+  users             User[]
+  aiConfig          HouseholdAiConfig?
+  ingredients       Ingredient[]
+  units             Unit[]
+  recipes           Recipe[]
+  tags              Tag[]
+  storageLocations  StorageLocation[]
+  pantryItems       PantryItem[]
+  pantryPars        PantryPar[]
+  pantryTx          PantryTransaction[]
+  plannedMeals      PlannedMeal[]
+  cookSessions      CookSession[]
+  stores            Store[]
+  shoppingLists     ShoppingList[]
+  priceObservations PriceObservation[]
+
+  @@map("household")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  householdId  Int
+  email        String    @unique
+  passwordHash String
+  displayName  String
+  role         Role      @default(MEMBER)
+  createdOn    DateTime  @default(now())
+  disabledOn   DateTime?
+  deletedOn    DateTime?
+
+  household        Household           @relation(fields: [householdId], references: [id])
+  recipes          Recipe[]
+  pantryTx         PantryTransaction[]
+  plannedMeals     PlannedMeal[]
+  aiConfigsUpdated HouseholdAiConfig[]
+
+  @@index([householdId])
+  @@map("app_user")
+}
+
+/// Bring-your-own Anthropic key, one per household. There is deliberately no
+/// server-wide ANTHROPIC_API_KEY: each household pays for its own AI usage.
+///
+/// The key is encrypted with AES-256-GCM using the server's AI_ENCRYPTION_KEY and
+/// is WRITE-ONLY at the API boundary — no endpoint ever returns it. Only
+/// keyLastFour is ever shown, so the UI can render "••••abcd".
+model HouseholdAiConfig {
+  householdId  Int       @id
+  enabled      Boolean   @default(false)
+  encryptedKey Bytes
+  keyIv        Bytes
+  keyAuthTag   Bytes
+  keyLastFour  String
+  model        String    @default("claude-opus-5")
+  effort       String    @default("medium")
+  /// Last time a live test call with this key succeeded.
+  verifiedOn   DateTime?
+  updatedById  Int
+  updatedOn    DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  updatedBy User      @relation(fields: [updatedById], references: [id])
+
+  @@map("household_ai_config")
+}
+
+// ---------------------------------------------------------------------------
+// Units and the ingredient catalog
+// ---------------------------------------------------------------------------
+
+/// Base units are gram (MASS), millilitre (VOLUME) and each (COUNT).
+/// toBaseFactor is the multiplier into the kind's base unit.
+model Unit {
+  id           Int      @id @default(autoincrement())
+  householdId  Int?
+  name         String
+  plural       String
+  abbrev       String?
+  kind         UnitKind
+  toBaseFactor Decimal  @db.Decimal(20, 10)
+
+  household            Household?          @relation(fields: [householdId], references: [id])
+  defaultForIngredient Ingredient[]
+  recipeIngredients    RecipeIngredient[]
+  pantryItems          PantryItem[]
+  pantryPars           PantryPar[]
+  pantryTx             PantryTransaction[]
+  shoppingListItems    ShoppingListItem[]
+  priceObservations    PriceObservation[]
+
+  @@unique([householdId, name])
+  @@map("unit")
+}
+
+/// Doubles as the default shopping-list aisle grouping; per-store overrides live
+/// in StoreAisle.
+model IngredientCategory {
+  id        Int    @id @default(autoincrement())
+  name      String @unique
+  sortOrder Int
+
+  ingredients Ingredient[]
+  storeAisles StoreAisle[]
+
+  @@map("ingredient_category")
+}
+
+model Ingredient {
+  id            Int      @id @default(autoincrement())
+  householdId   Int?
+  name          String
+  slug          String
+  categoryId    Int?
+  defaultUnitId Int?
+  /// Density in grams per millilitre. Bridges VOLUME <-> MASS. Flour ~0.53, water 1.0.
+  gramsPerMl    Decimal? @db.Decimal(12, 6)
+  /// Piece weight in grams. Bridges COUNT <-> MASS. One egg ~50g.
+  gramsPerPiece Decimal? @db.Decimal(12, 4)
+  /// Seeds a default expiry date on pantry intake.
+  shelfLifeDays Int?
+  note          String?
+
+  household         Household?          @relation(fields: [householdId], references: [id])
+  category          IngredientCategory? @relation(fields: [categoryId], references: [id])
+  defaultUnit       Unit?               @relation(fields: [defaultUnitId], references: [id])
+  aliases           IngredientAlias[]
+  recipeIngredients RecipeIngredient[]
+  pantryItems       PantryItem[]
+  pantryPars        PantryPar[]
+  pantryTx          PantryTransaction[]
+  shoppingListItems ShoppingListItem[]
+  priceObservations PriceObservation[]
+
+  @@unique([householdId, slug])
+  @@index([categoryId])
+  @@map("ingredient")
+}
+
+/// Alternate names the paste-and-parse matcher resolves against
+/// ("scallions" -> green onion, "coriander" -> cilantro).
+model IngredientAlias {
+  id           Int    @id @default(autoincrement())
+  ingredientId Int
+  alias        String
+  slug         String
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([ingredientId, slug])
+  @@index([slug])
+  @@map("ingredient_alias")
+}
+
+// ---------------------------------------------------------------------------
+// Recipes
+// ---------------------------------------------------------------------------
+
+model Recipe {
+  id          Int       @id @default(autoincrement())
+  householdId Int
+  title       String
+  slug        String
+  description String?
+  /// The basis for all scaling. Never mutate without rescaling the ingredients.
+  servings    Int
+  prepMinutes Int?
+  cookMinutes Int?
+  /// Set by a future URL import; unused in v1 but recorded when known.
+  sourceUrl   String?
+  sourceNote  String?
+  imagePath   String?
+  notes       String?
+  createdById Int
+  createdOn   DateTime  @default(now())
+  updatedOn   DateTime  @updatedAt
+  archivedOn  DateTime?
+
+  household    Household          @relation(fields: [householdId], references: [id])
+  createdBy    User               @relation(fields: [createdById], references: [id])
+  ingredients  RecipeIngredient[]
+  steps        RecipeStep[]
+  tags         RecipeTag[]
+  plannedMeals PlannedMeal[]
+  cookSessions CookSession[]
+
+  @@unique([householdId, slug])
+  @@index([householdId, archivedOn])
+  @@map("recipe")
+}
+
+/// ingredientId is deliberately nullable and rawText is always preserved. Three
+/// real cases need it: a parse that did not resolve, an unquantified line ("salt
+/// and pepper to taste"), and a one-off the cook does not want in the catalog.
+/// Unresolved lines display normally but sit out of all pantry maths.
+model RecipeIngredient {
+  id           Int      @id @default(autoincrement())
+  recipeId     Int
+  sortOrder    Int
+  ingredientId Int?
+  rawText      String
+  quantity     Decimal? @db.Decimal(12, 4)
+  unitId       Int?
+  preparation  String?
+  /// "For the sauce" — groups lines under a sub-heading.
+  groupLabel   String?
+  optional     Boolean  @default(false)
+
+  recipe     Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient? @relation(fields: [ingredientId], references: [id])
+  unit       Unit?       @relation(fields: [unitId], references: [id])
+
+  @@index([recipeId, sortOrder])
+  @@index([ingredientId])
+  @@map("recipe_ingredient")
+}
+
+model RecipeStep {
+  id        Int    @id @default(autoincrement())
+  recipeId  Int
+  sortOrder Int
+  text      String
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId, sortOrder])
+  @@map("recipe_step")
+}
+
+model Tag {
+  id          Int     @id @default(autoincrement())
+  householdId Int
+  name        String
+  slug        String
+  kind        TagKind @default(FREE)
+
+  household Household   @relation(fields: [householdId], references: [id])
+  recipes   RecipeTag[]
+
+  @@unique([householdId, slug])
+  @@map("tag")
+}
+
+model RecipeTag {
+  recipeId Int
+  tagId    Int
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([recipeId, tagId])
+  @@map("recipe_tag")
+}
+
+// ---------------------------------------------------------------------------
+// Pantry
+// ---------------------------------------------------------------------------
+
+model StorageLocation {
+  id          Int    @id @default(autoincrement())
+  householdId Int
+  name        String
+  sortOrder   Int    @default(0)
+
+  household Household    @relation(fields: [householdId], references: [id])
+  items     PantryItem[]
+
+  @@unique([householdId, name])
+  @@map("storage_location")
+}
+
+/// One physical lot. Multiple rows per ingredient are intentional: two half-used
+/// bags of rice with different expiry dates are genuinely two lots, and cooking
+/// deducts oldest-expiry-first across them.
+model PantryItem {
+  id           Int       @id @default(autoincrement())
+  householdId  Int
+  ingredientId Int
+  locationId   Int
+  quantity     Decimal   @db.Decimal(12, 4)
+  unitId       Int
+  brand        String?
+  openedOn     DateTime?
+  expiresOn    DateTime?
+  note         String?
+  createdOn    DateTime  @default(now())
+
+  household    Household           @relation(fields: [householdId], references: [id])
+  ingredient   Ingredient          @relation(fields: [ingredientId], references: [id])
+  location     StorageLocation     @relation(fields: [locationId], references: [id])
+  unit         Unit                @relation(fields: [unitId], references: [id])
+  transactions PantryTransaction[]
+
+  @@index([householdId, ingredientId])
+  @@index([householdId, expiresOn])
+  @@map("pantry_item")
+}
+
+/// Restock threshold. Anything below par lands on the next generated shopping list.
+model PantryPar {
+  id           Int     @id @default(autoincrement())
+  householdId  Int
+  ingredientId Int
+  minQuantity  Decimal @db.Decimal(12, 4)
+  unitId       Int
+
+  household  Household  @relation(fields: [householdId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  unit       Unit       @relation(fields: [unitId], references: [id])
+
+  @@unique([householdId, ingredientId])
+  @@map("pantry_par")
+}
+
+/// Append-only ledger. Cooking a recipe deducts a dozen ingredients at once;
+/// without an audit trail one mis-scaled cook silently corrupts the pantry with no
+/// way back. CookSession groups a deduction so it can be undone as a unit.
+model PantryTransaction {
+  id            Int      @id @default(autoincrement())
+  householdId   Int
+  pantryItemId  Int?
+  ingredientId  Int
+  /// Signed: negative consumes, positive restocks.
+  delta         Decimal  @db.Decimal(12, 4)
+  unitId        Int
+  kind          TxKind
+  cookSessionId Int?
+  note          String?
+  createdById   Int
+  createdOn     DateTime @default(now())
+
+  household   Household    @relation(fields: [householdId], references: [id])
+  pantryItem  PantryItem?  @relation(fields: [pantryItemId], references: [id])
+  ingredient  Ingredient   @relation(fields: [ingredientId], references: [id])
+  unit        Unit         @relation(fields: [unitId], references: [id])
+  cookSession CookSession? @relation(fields: [cookSessionId], references: [id])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  @@index([householdId, ingredientId, createdOn])
+  @@index([cookSessionId])
+  @@map("pantry_transaction")
+}
+
+// ---------------------------------------------------------------------------
+// Meal planner
+// ---------------------------------------------------------------------------
+
+/// One entry on the calendar. recipeId is nullable so the plan can hold real-life
+/// entries that are not recipes — "leftovers", "dinner out". Those display on the
+/// grid and are skipped by shopping-list generation and cook deduction.
+model PlannedMeal {
+  id          Int        @id @default(autoincrement())
+  householdId Int
+  date        DateTime   @db.Date
+  slot        MealSlot
+  /// Ordering within a slot, so a day can hold several entries.
+  sortOrder   Int        @default(0)
+  recipeId    Int?
+  note        String?
+  /// May differ from recipe.servings — that ratio is the scale factor.
+  servings    Int        @default(1)
+  status      PlanStatus @default(PLANNED)
+  createdById Int
+  createdOn   DateTime   @default(now())
+
+  household    Household     @relation(fields: [householdId], references: [id])
+  recipe       Recipe?       @relation(fields: [recipeId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  cookSessions CookSession[]
+
+  @@index([householdId, date])
+  @@map("planned_meal")
+}
+
+/// A single cooking event, grouping every deduction it caused so the whole thing
+/// can be reversed with one call.
+model CookSession {
+  id            Int      @id @default(autoincrement())
+  householdId   Int
+  plannedMealId Int?
+  recipeId      Int
+  servings      Int
+  cookedOn      DateTime  @default(now())
+  note          String?
+  /// Set when the cook was undone. Undo is append-only — it writes reversing
+  /// ledger entries rather than deleting the originals — so this is what stops a
+  /// second undo from restoring the same quantities twice.
+  reversedOn    DateTime?
+
+  household    Household           @relation(fields: [householdId], references: [id])
+  plannedMeal  PlannedMeal?        @relation(fields: [plannedMealId], references: [id])
+  recipe       Recipe              @relation(fields: [recipeId], references: [id])
+  transactions PantryTransaction[]
+
+  @@index([householdId, cookedOn])
+  @@map("cook_session")
+}
+
+// ---------------------------------------------------------------------------
+// Stores and shopping
+// ---------------------------------------------------------------------------
+
+model Store {
+  id          Int     @id @default(autoincrement())
+  householdId Int
+  name        String
+  sortOrder   Int     @default(0)
+  note        String?
+
+  household         Household          @relation(fields: [householdId], references: [id])
+  aisles            StoreAisle[]
+  shoppingLists     ShoppingList[]
+  shoppingListItems ShoppingListItem[]
+  priceObservations PriceObservation[]
+
+  @@unique([householdId, name])
+  @@map("store")
+}
+
+/// Optional per-store walk order, overriding IngredientCategory.sortOrder so the
+/// list reads in the order you actually walk that shop.
+model StoreAisle {
+  id         Int @id @default(autoincrement())
+  storeId    Int
+  categoryId Int
+  sortOrder  Int
+
+  store    Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category IngredientCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([storeId, categoryId])
+  @@map("store_aisle")
+}
+
+model ShoppingList {
+  id          Int        @id @default(autoincrement())
+  householdId Int
+  name        String
+  storeId     Int?
+  status      ListStatus @default(ACTIVE)
+  createdOn   DateTime   @default(now())
+  completedOn DateTime?
+
+  household Household          @relation(fields: [householdId], references: [id])
+  store     Store?             @relation(fields: [storeId], references: [id])
+  items     ShoppingListItem[]
+
+  @@index([householdId, status])
+  @@map("shopping_list")
+}
+
+/// Store, brand and price are all optional. An item with none of them is just a
+/// name and a quantity, and the UI must not nag for the rest.
+model ShoppingListItem {
+  id                  Int        @id @default(autoincrement())
+  listId              Int
+  ingredientId        Int?
+  /// Ad-hoc items that are not catalog ingredients ("paper towels").
+  rawName             String?
+  quantity            Decimal?   @db.Decimal(12, 4)
+  unitId              Int?
+  source              ItemSource @default(MANUAL)
+  sourcePlannedMealId Int?
+  /// Per-item override of the list's store.
+  storeId             Int?
+  brand               String?
+  /// Prefilled from the most recent PriceObservation; gives a running total.
+  estimatedPrice      Decimal?   @db.Decimal(10, 2)
+  /// Entered at checkout; becomes the next PriceObservation on receive.
+  actualPrice         Decimal?   @db.Decimal(10, 2)
+  /// True when this line could not be combined with others for want of a
+  /// density or piece weight. Surfaced in the UI rather than silently merged.
+  unconvertible       Boolean    @default(false)
+  checkedOn           DateTime?
+  note                String?
+
+  list       ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  ingredient Ingredient?  @relation(fields: [ingredientId], references: [id])
+  unit       Unit?        @relation(fields: [unitId], references: [id])
+  store      Store?       @relation(fields: [storeId], references: [id])
+
+  @@index([listId])
+  @@map("shopping_list_item")
+}
+
+/// Written when a shopping list is received. Powers estimatedPrice on future
+/// lists and a running total before you reach the register.
+model PriceObservation {
+  id           Int      @id @default(autoincrement())
+  householdId  Int
+  ingredientId Int
+  storeId      Int?
+  brand        String?
+  quantity     Decimal  @db.Decimal(12, 4)
+  unitId       Int
+  price        Decimal  @db.Decimal(10, 2)
+  observedOn   DateTime @default(now())
+
+  household  Household  @relation(fields: [householdId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  store      Store?     @relation(fields: [storeId], references: [id])
+  unit       Unit       @relation(fields: [unitId], references: [id])
+
+  @@index([householdId, ingredientId, observedOn])
+  @@map("price_observation")
+}

@@ -1,0 +1,7 @@
+{
+  // What `nest build` compiles. Without this file Nest falls back to
+  // tsconfig.json, which has no include/exclude for tests, so every *.spec.ts
+  // and the test/ helpers were being type-checked and emitted into dist/.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
+}

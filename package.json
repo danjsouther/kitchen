@@ -1,0 +1,32 @@
+{
+  "name": "recipes",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Recipe, pantry and meal planning for a household",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:up": "node scripts/dev-up.js",
+    "dev:down": "node scripts/dev-down.js",
+    "dev": "npm run build -w packages/shared-types && concurrently -n backend,frontend -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm run start:dev -w packages/backend",
+    "dev:frontend": "npm run start -w packages/frontend",
+    "build": "npm run build -w packages/shared-types && npm run build -w packages/backend && npm run build -w packages/frontend",
+    "test": "npm run build -w packages/shared-types && npm test -w packages/shared-types && npm test -w packages/backend",
+    "prisma:generate": "npm exec -w packages/backend -- prisma generate",
+    "prisma:migrate": "npm exec -w packages/backend -- prisma migrate dev",
+    "prisma:studio": "npm exec -w packages/backend -- prisma studio",
+    "seed": "npm run build -w packages/shared-types && npm run seed -w packages/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.9.1": true,
+    "prisma@7.9.1": true,
+    "unrs-resolver@1.12.2": true,
+    "esbuild@0.28.1": true
+  }
+}

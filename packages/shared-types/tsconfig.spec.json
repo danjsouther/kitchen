@@ -1,0 +1,14 @@
+{
+  // Test-only config. tsconfig.json is the *library* build and deliberately
+  // excludes specs, so jest's globals must not be declared there — a published
+  // .d.ts should not depend on @types/jest.
+  //
+  // The explicit "types" is required as of TypeScript 6, which only auto-includes
+  // the nearest node_modules/@types. npm hoists @types/jest to the workspace
+  // root, so nothing was found and every spec failed on "Cannot find name 'describe'".
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "jest"]
+  },
+  "include": ["src"]
+}

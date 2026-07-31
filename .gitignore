@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.angular/
+*.tsbuildinfo
+
+# Env files (never commit secrets)
+.env
+.env.local
+!.env.example
+
+# Prisma generated client (regenerated via `npm run prisma:generate`)
+/packages/backend/generated/
+
+# Uploaded recipe images
+/packages/backend/uploads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Claude Code local (machine-specific) settings
+.claude/settings.local.json

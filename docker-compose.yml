@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      # Bound to loopback only — the database is never exposed to the network.
+      # Host port is configurable so this can coexist with another local Postgres.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5432"
+
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    # So ConfigModule / prisma resolve the same root .env as local dev
+    # (env_file injects vars; the mount makes the file visible at /repo/.env).
+    volumes:
+      - .env:/repo/.env:ro
+      - recipe-images:/repo/packages/backend/uploads
+    expose:
+      - "3000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  postgres-data:
+  recipe-images:

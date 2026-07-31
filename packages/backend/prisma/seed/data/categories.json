@@ -1,0 +1,18 @@
+[
+  { "name": "Produce", "sortOrder": 10 },
+  { "name": "Bakery", "sortOrder": 20 },
+  { "name": "Deli", "sortOrder": 30 },
+  { "name": "Meat & Seafood", "sortOrder": 40 },
+  { "name": "Dairy & Eggs", "sortOrder": 50 },
+  { "name": "Frozen", "sortOrder": 60 },
+  { "name": "Canned & Jarred", "sortOrder": 70 },
+  { "name": "Dry Goods & Pasta", "sortOrder": 80 },
+  { "name": "Baking", "sortOrder": 90 },
+  { "name": "Spices & Seasonings", "sortOrder": 100 },
+  { "name": "Condiments & Sauces", "sortOrder": 110 },
+  { "name": "Oils & Vinegars", "sortOrder": 120 },
+  { "name": "Nuts & Dried Fruit", "sortOrder": 130 },
+  { "name": "Snacks", "sortOrder": 140 },
+  { "name": "Beverages", "sortOrder": 150 },
+  { "name": "Household", "sortOrder": 160 }
+]

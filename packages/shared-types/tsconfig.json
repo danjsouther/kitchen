@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    // node16, not the legacy "node"/node10 pair: TypeScript 6 deprecates node10
+    // and drops it in 7. This still emits CommonJS (there is no "type" field in
+    // package.json), which is what both consumers expect — the backend resolves
+    // it under nodenext and the frontend bundles it.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "target": "ES2022",
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    // Required by ts-jest when module is node16, and matches the backend.
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.spec.ts"]
+}
