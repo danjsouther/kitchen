@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
@@ -104,7 +103,6 @@ import type { RecipeSummary } from "../core/models";
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .search {
       width: min(460px, 100%);

@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import {
   FormField,
@@ -162,7 +161,6 @@ import type { StorageLocation, Store } from "../core/models";
       </div>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .cards {
       display: grid;

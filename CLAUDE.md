@@ -144,11 +144,10 @@ would quietly move everyone's costs and data onto one credential.
 
 - **All three packages share one TypeScript version (6.0.x)**, because Angular's
   compiler pins `>=6.0 <6.1`. Do not "fix" the backend to an older one.
-- **Components carry `ChangeDetectionStrategy.Eager`.** Angular 22 defaults to
-  `OnPush`; several components hold non-signal fields assigned inside an HTTP
-  subscribe and then rendered, which `OnPush` and zoneless would both leave
-  stale. Removing the shim breaks rendering silently rather than failing a
-  build. Converting that state to signals is the prerequisite.
+- **Components use the Angular 22 OnPush default; bootstrap is zoneless via
+  `provideZonelessChangeDetection()`.** Template-bound state must be signals
+  (or Signal Forms) — never plain fields mutated in a subscribe. That is what
+  marks the view dirty; a plain assignment stays stale with nothing to point at.
 - **The API serves `/api/*`** (`setGlobalPrefix('api')`). `nginx.conf` must not
   strip the prefix.
 - **The backend listens on 3000 in the container**, not the 3001 in `.env` —

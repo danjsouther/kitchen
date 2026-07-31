@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   inject,
   input,
   linkedSignal,
@@ -31,7 +29,6 @@ import type { Ingredient } from "../core/models";
  */
 @Component({
   selector: "app-ingredient-picker",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     MatAutocompleteModule,
     MatFormFieldModule,

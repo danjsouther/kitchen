@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   inject,
   input,
   output,
@@ -32,7 +30,6 @@ import type { Product } from "../core/models";
  */
 @Component({
   selector: "app-product-picker",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     MatAutocompleteModule,
     MatFormFieldModule,

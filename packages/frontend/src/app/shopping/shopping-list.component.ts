@@ -3,7 +3,6 @@ import {
   inject,
   input,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -217,7 +216,6 @@ import type {
       </div>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     h1 {
       margin: 0;

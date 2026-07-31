@@ -39,13 +39,11 @@ Two consequences of TypeScript 6 worth knowing before you touch a `tsconfig`:
 
 ### Change detection
 
-Angular 22 makes **`OnPush` the default**, so every component here carries an explicit
-`ChangeDetectionStrategy.Eager` and `main.ts` calls `provideZoneChangeDetection()`. That is
-deliberate, and it is a debt rather than a preference: several components hold plain
-non-signal fields that are assigned inside an HTTP `subscribe` and then rendered, which
-`OnPush` and zoneless would both leave stale on screen. Converting that state to signals is
-what unblocks dropping the shim — until then, removing it silently breaks rendering rather
-than failing a build.
+Angular 22 defaults to **OnPush** and zoneless. Components omit an explicit
+`changeDetection` strategy, and `main.ts` calls `provideZonelessChangeDetection()`
+with no `zone.js` polyfill. Template-bound state is signals (or Signal Forms);
+HTTP and debounce callbacks write via `.set()`. Do not reintroduce plain fields
+mutated inside a subscribe and then rendered — those stay stale on screen.
 
 ## Getting started
 

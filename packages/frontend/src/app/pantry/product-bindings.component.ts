@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   computed,
   inject,
   signal,
@@ -32,7 +30,6 @@ import type {
  */
 @Component({
   selector: "app-product-bindings",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     BarcodeScanComponent,
     IngredientPickerComponent,

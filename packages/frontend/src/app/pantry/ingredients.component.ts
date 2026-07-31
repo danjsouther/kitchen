@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   effect,
   inject,
   input,
@@ -50,7 +48,6 @@ import type {
  */
 @Component({
   selector: "app-ingredients",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     FormField,
     FormRoot,

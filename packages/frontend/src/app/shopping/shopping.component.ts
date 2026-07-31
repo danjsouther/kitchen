@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import {
@@ -184,7 +183,6 @@ import type {
       }
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     h2 {
       font-size: 1.1rem;

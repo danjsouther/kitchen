@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import {
   FormField,
@@ -128,7 +127,6 @@ import { describeError } from "./notify.service";
       </mat-card>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .wrap {
       min-height: 100dvh;

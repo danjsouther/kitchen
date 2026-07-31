@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
@@ -197,7 +196,6 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
       </mat-tab-group>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .tab-body {
       padding-top: 1rem;

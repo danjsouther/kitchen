@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   inject,
   input,
   linkedSignal,
@@ -50,7 +48,6 @@ import type {
  */
 @Component({
   selector: "app-pantry-item-form",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     UpperCasePipe,
     BarcodeScanComponent,

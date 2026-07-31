@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   DestroyRef,
   ElementRef,
   computed,
@@ -32,7 +30,6 @@ import { MatInputModule } from "@angular/material/input";
  */
 @Component({
   selector: "app-barcode-scan",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule],
   template: `
     <div class="scan">

@@ -3,7 +3,6 @@ import {
   inject,
   input,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
@@ -162,7 +161,6 @@ import type { Recipe, RecipeIngredient } from "../core/models";
       </div>
     }
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     h1 {
       margin: 0;

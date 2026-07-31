@@ -3,7 +3,6 @@ import {
   computed,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { RouterLink } from "@angular/router";
@@ -156,7 +155,6 @@ type Slot = (typeof SLOTS)[number];
       </p>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .range {
       min-width: 8.5rem;

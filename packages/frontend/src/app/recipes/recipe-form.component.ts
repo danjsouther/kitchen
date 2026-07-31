@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   computed,
   inject,
   input,
@@ -89,7 +87,6 @@ function blankIngredient(): IngredientRow {
  */
 @Component({
   selector: "app-recipe-form",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     FormField,
     FormRoot,

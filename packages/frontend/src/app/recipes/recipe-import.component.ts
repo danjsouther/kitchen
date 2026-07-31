@@ -3,7 +3,6 @@ import {
   computed,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import {
   FormField,
@@ -377,7 +376,6 @@ function blankLine(groupLabel: string): DraftLine {
       }
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .full {
       width: 100%;

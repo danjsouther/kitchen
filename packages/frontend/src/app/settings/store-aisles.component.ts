@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   computed,
   inject,
   input,
@@ -31,7 +29,6 @@ import type { IngredientCategory, Store } from "../core/models";
  */
 @Component({
   selector: "app-store-aisles",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     RouterLink,
     MatButtonModule,

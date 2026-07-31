@@ -1,6 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
+import { Component,
   inject,
   input,
   linkedSignal,
@@ -48,7 +46,6 @@ const SLOTS: ReadonlyArray<PlannedMeal["slot"]> = [
  */
 @Component({
   selector: "app-plan-meal-form",
-  changeDetection: ChangeDetectionStrategy.Eager,
   imports: [
     FormField,
     FormRoot,

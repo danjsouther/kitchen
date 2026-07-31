@@ -4,6 +4,12 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — Frontend OnPush + zoneless (2026-07-31)
+
+Dropped `ChangeDetectionStrategy.Eager` from every component (Angular 22’s
+OnPush default), switched bootstrap to `provideZonelessChangeDetection()`, and
+removed the `zone.js` dependency. Template-bound state was already signals.
+
 ### Added — Shopping put-away: multi-location + undo (2026-07-31)
 
 Receiving a shopping list now takes a default storage location plus optional

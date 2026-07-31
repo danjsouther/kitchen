@@ -3,7 +3,6 @@ import {
   computed,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import { RouterLink } from "@angular/router";
@@ -179,7 +178,6 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
       </mat-tab-group>
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .tab-body {
       padding-top: 1rem;

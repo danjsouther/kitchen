@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   signal,
-  ChangeDetectionStrategy,
 } from "@angular/core";
 import { DatePipe } from "@angular/common";
 import {
@@ -146,7 +145,6 @@ import type { AiConfig } from "../core/models";
       }
     </div>
   `,
-  changeDetection: ChangeDetectionStrategy.Eager,
   styles: `
     .narrow {
       max-width: 640px;
