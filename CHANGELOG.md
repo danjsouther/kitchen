@@ -4,6 +4,14 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — GIN trigram indexes on product name/brand (2026-07-31)
+
+`product_name_trgm_idx` and `product_brands_trgm_idx` keep OFF-catalog product
+search (~1M rows) off a sequential scan, mirroring the existing ingredient
+trigram indexes. Raw SQL migration, same reason as `add_pg_trgm`: Prisma cannot
+express `gin_trgm_ops`, so `migrate dev` will propose dropping these as drift —
+delete those lines from the generated SQL.
+
 ### Fixed — Recipe editor: amount edits now recompose the ingredient line (2026-07-31)
 
 An unmatched ingredient line carries its amount inside `rawText` (no catalog

@@ -9,7 +9,7 @@
 //     multi-tenant future a config change rather than a migration everywhere.
 //   * Table names are snake_case via @@map; fields use createdOn/deletedOn naming.
 //
-// Regenerate ERD.md by hand when this changes — it is documentation, not a build artifact.
+// Regenerate docs/ERD.md by hand when this changes — it is documentation, not a build artifact.
 
 generator client {
   provider     = "prisma-client"
