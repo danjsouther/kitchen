@@ -654,6 +654,9 @@ Under construction. Built so far:
       nullable on purpose
 - [x] Open Food Facts products — offline monthly mirror, barcode scan on pantry intake,
       consensus default + household category override, `productId` through shopping
+- [x] Scan multiple pantry items in one session — continuous camera scan with per-scan
+      flash/vibrate/snackbar feedback, a server-side queue that survives a refresh or a
+      different device, then stock each item one at a time
 
 Not done yet, and worth knowing before you rely on it:
 

@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.2.0 (2026-08-01)
+
 ### Added — Scan several pantry items before stocking them (2026-08-01)
 
 Added a "Scan multiple" flow on the pantry page: `app-barcode-scan` gained an
