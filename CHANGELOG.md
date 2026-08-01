@@ -4,6 +4,16 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Recipe editor: amount edits now recompose the ingredient line (2026-07-31)
+
+An unmatched ingredient line carries its amount inside `rawText` (no catalog
+name to hold it separately). Editing the quantity or unit on such a line saved
+fine but left the old amount sitting in the printed text — "200 g flour"
+stayed "200 g flour" after the unit was changed to milligrams. `lineText()` now
+recomposes `rawText` when the amount changes, not just on rename, and the
+leading-amount-stripping logic shared by the recipe screen and the editor moved
+to `withoutLeadingAmount()` in `shared/format.ts` so both stay in agreement.
+
 ### Changed — Move ERD and TODO under docs/ (2026-07-31)
 
 Moved `ERD.md` and `TODO.md` into `docs/`, added `docs/README.md` as an index,

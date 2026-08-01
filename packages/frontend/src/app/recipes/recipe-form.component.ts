@@ -29,7 +29,7 @@ import { MatSelectModule } from "@angular/material/select";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
-import { amountWithUnit } from "../shared/format";
+import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
 import type { Ingredient, RecipeWrite, Unit } from "../core/models";
 
 /** One ingredient line as the form holds it, before it becomes a payload. */
@@ -51,6 +51,15 @@ interface IngredientRow {
   rawText: string;
   /** The name as seeded, so "the cook renamed this" is a fact, not a guess. */
   seedName: string;
+  /**
+   * The amount as seeded, for the same reason as `seedName`.
+   *
+   * An unmatched line carries its amount only inside `rawText`, so a changed
+   * quantity or unit has to be recomposed into the wording or it never reaches
+   * the screen. See `lineText`.
+   */
+  seedQuantity: string;
+  seedUnitId: number;
 }
 
 interface StepRow {
@@ -67,6 +76,8 @@ function blankIngredient(): IngredientRow {
     optional: false,
     rawText: "",
     seedName: "",
+    seedQuantity: "",
+    seedUnitId: 0,
   };
 }
 
@@ -554,19 +565,30 @@ export class RecipeFormComponent {
           sourceUrl: recipe.sourceUrl ?? "",
           notes: recipe.notes ?? "",
           tags: recipe.tags.map((tag) => tag.name).join(", "),
-          ingredients: recipe.ingredients.map((line) => ({
-            ingredientId: line.ingredient?.id ?? 0,
+          ingredients: recipe.ingredients.map((line) => {
             // A line that never matched the catalog has no name of its own —
             // rawText is the only text it carries, so that is what the cook
-            // sees and can correct.
-            name: line.ingredient?.name ?? line.rawText,
-            quantity: line.quantity ?? "",
-            unitId: line.unit?.id ?? 0,
-            preparation: line.preparation ?? "",
-            optional: line.optional,
-            rawText: line.rawText,
-            seedName: line.ingredient?.name ?? line.rawText,
-          })),
+            // sees and can correct. Its leading amount comes off first: the
+            // amount already has fields of its own right beside it, and leaving
+            // it in the name too means an edit to either one contradicts the
+            // other. "200 g flour" with the unit changed to milligrams saved as
+            // "200 mg 200 g flour" while the screen went on reading "200 g".
+            const name =
+              line.ingredient?.name ??
+              withoutLeadingAmount(line.rawText, line.quantity, line.unit);
+            return {
+              ingredientId: line.ingredient?.id ?? 0,
+              name,
+              quantity: line.quantity ?? "",
+              unitId: line.unit?.id ?? 0,
+              preparation: line.preparation ?? "",
+              optional: line.optional,
+              rawText: line.rawText,
+              seedName: name,
+              seedQuantity: line.quantity ?? "",
+              seedUnitId: line.unit?.id ?? 0,
+            };
+          }),
           steps: recipe.steps.map((step) => ({ text: step.text })),
         });
 
@@ -742,18 +764,34 @@ export class RecipeFormComponent {
   }
 
   /**
-   * The line to store: the text already on record, unless the cook renamed it.
+   * The line to store: the text already on record, unless the cook changed
+   * what that text says.
    *
-   * Deliberately *not* recomposed when only the amount or preparation changed.
-   * `rawText` is the record of the line's wording; the amount lives in its own
-   * column and the recipe screen renders it separately, so folding a new amount
-   * back in here would print it twice — "1 a pinch of salt" beside the 1 that
-   * is already on screen. A rename is the case that does need recomposing,
-   * because the stored wording no longer names the right thing.
+   * `rawText` is kept verbatim while it still describes the line, because on
+   * the paste path it is the cook's own wording and the only record of what was
+   * meant. It stops describing the line the moment the name, the quantity or
+   * the unit is edited, and then it has to be recomposed.
+   *
+   * The amount matters here even though it has columns of its own, because an
+   * *unmatched* line has no catalog name: the recipe screen prints its
+   * `rawText` in place of a separate amount, so a line left saying "200 g
+   * flour" goes on saying that however often the unit is changed underneath it.
+   * That is the bug this replaced — the edit saved, and nothing on screen moved.
+   *
+   * Recomposing does not print the amount twice. The recipe screen strips a
+   * leading amount it can recognise before printing the rest, and it builds the
+   * candidates it strips with the same `amountWithUnit` used below, so a
+   * recomposed line is the case it recognises best. A *stale* one is what
+   * defeats it.
    */
   private lineText(row: IngredientRow): string {
     const renamed = row.name.trim() !== row.seedName.trim();
-    return row.rawText && !renamed ? row.rawText : this.rawText(row);
+    const reamounted =
+      row.quantity.trim() !== row.seedQuantity.trim() ||
+      row.unitId !== row.seedUnitId;
+    return row.rawText && !renamed && !reamounted
+      ? row.rawText
+      : this.rawText(row);
   }
 
   /**

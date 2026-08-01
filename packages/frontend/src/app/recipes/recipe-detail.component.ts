@@ -14,7 +14,7 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
-import { amountWithUnit, trimQuantity } from "../shared/format";
+import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
 import type { Recipe, RecipeIngredient } from "../core/models";
 
 @Component({
@@ -319,47 +319,9 @@ export class RecipeDetailComponent {
     return this.withoutLeadingAmount(line) !== line.rawText.trim() || line.scaled != null;
   }
 
-  /**
-   * `rawText` with its own leading amount removed, when that amount is
-   * recognisable.
-   *
-   * Several spellings are tried because the parser keeps the source wording:
-   * "2 tsp salt", "2 teaspoons salt" and "2 teaspoon salt" all reduce to the
-   * same quantity and unit, and only one of them is what `amountWithUnit`
-   * renders. Anything unrecognised is left exactly as written — a wrong guess
-   * here would silently delete part of an ingredient's name.
-   */
+  /** `rawText` with its own leading amount removed, where one can be found. */
   private withoutLeadingAmount(line: RecipeIngredient): string {
-    const raw = line.rawText.trim();
-    if (line.quantity === null) return raw;
-
-    const amount = trimQuantity(line.quantity, 3);
-    const unit = line.unit;
-    const candidates = unit
-      ? [
-          amountWithUnit(line.quantity, unit),
-          `${amount} ${unit.abbrev ?? ""}`,
-          `${amount} ${unit.plural}`,
-          `${amount} ${unit.name}`,
-        ]
-      : [amount];
-
-    for (const candidate of candidates) {
-      const prefix = candidate.trim();
-      if (!prefix || !raw.toLowerCase().startsWith(prefix.toLowerCase())) continue;
-
-      // Whole words only: "2" must not be shaved off "200 g", and "2 cup" must
-      // not be shaved off "2 cupfuls".
-      const rest = raw.slice(prefix.length);
-      if (rest !== "" && !/^[\s,.]/.test(rest)) continue;
-
-      const trimmed = rest.replace(/^[\s,.]+/, "");
-      // Never leave the line nameless — "2 cups" on its own is all the text
-      // there is, and an empty name would render a bare amount.
-      if (trimmed) return trimmed;
-    }
-
-    return raw;
+    return withoutLeadingAmount(line.rawText, line.quantity, line.unit);
   }
 
   /** Lines under their "For the sauce" headings, in order. */
