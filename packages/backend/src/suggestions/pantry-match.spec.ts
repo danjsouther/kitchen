@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { ConversionFailure, UnitKind, type UnitDef } from '@recipes/shared-types';
+import { ConversionFailure, UnitKind, type UnitDef } from '@kitchen/shared-types';
 
 import {
   matchRecipe,

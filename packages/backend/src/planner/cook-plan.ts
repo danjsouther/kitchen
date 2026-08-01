@@ -13,7 +13,7 @@
  */
 
 import Decimal from 'decimal.js';
-import { scaleForServings, type UnitDef } from '@recipes/shared-types';
+import { scaleForServings, type UnitDef } from '@kitchen/shared-types';
 
 /** Why a recipe line took no part in the deduction. */
 export const SkipReason = {

@@ -1,4 +1,4 @@
-import type { Role } from '@recipes/shared-types';
+import type { Role } from '@kitchen/shared-types';
 
 /** The JWT payload. Kept small — it is re-sent on every request. */
 export interface JwtPayload {

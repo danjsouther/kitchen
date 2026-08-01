@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
-import { Role } from '@recipes/shared-types';
+import { Role } from '@kitchen/shared-types';
 
 import { runUnscoped } from '../common/household-context';
 import { PrismaService } from '../prisma/prisma.service';

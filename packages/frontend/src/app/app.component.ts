@@ -21,7 +21,7 @@ import { AuthService } from "./core/auth.service";
   template: `
     @if (auth.user(); as user) {
       <mat-toolbar class="shell-bar">
-        <a routerLink="/recipes" class="brand">Recipes</a>
+        <a routerLink="/recipes" class="brand">Kitchen</a>
 
         <nav class="links">
           @for (link of links; track link.path) {

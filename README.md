@@ -1,4 +1,4 @@
-# Recipes
+# Kitchen
 
 Recipe collection, pantry inventory, meal planning and shopping lists for a household.
 Self-hosted, with a schema that is ready for multi-tenant hosting later.

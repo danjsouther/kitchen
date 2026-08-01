@@ -17,7 +17,7 @@ import {
   IngredientPhysicals,
   UnitDef,
   convert,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 import type { BalanceLot } from './pantry-balance';
 

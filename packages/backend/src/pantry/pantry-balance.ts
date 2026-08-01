@@ -15,7 +15,7 @@ import {
   IngredientPhysicals,
   UnitDef,
   convert,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 /** The subset of a pantry lot the balance maths needs. */
 export interface BalanceLot {

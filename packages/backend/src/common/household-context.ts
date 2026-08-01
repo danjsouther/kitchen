@@ -11,7 +11,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { Role } from '@recipes/shared-types';
+import type { Role } from '@kitchen/shared-types';
 
 export interface HouseholdContext {
   householdId: number;

@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { matchCandidates, slugify } from '@recipes/shared-types';
+import { matchCandidates, slugify } from '@kitchen/shared-types';
 
 import { requireHouseholdId } from '../common/household-context';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';

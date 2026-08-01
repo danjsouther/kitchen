@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { TxKind, type UnitDef } from '@recipes/shared-types';
+import { TxKind, type UnitDef } from '@kitchen/shared-types';
 
 import { IngredientsService } from '../catalog/ingredients.service';
 import { UnitsService, toUnitDef } from '../catalog/units.service';

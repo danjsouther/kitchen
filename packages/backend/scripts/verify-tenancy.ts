@@ -20,7 +20,7 @@ import { config as loadEnv } from 'dotenv';
 const rootEnv = resolve(__dirname, '../../../.env');
 if (existsSync(rootEnv)) loadEnv({ path: rootEnv, quiet: true });
 
-import { Role } from '@recipes/shared-types';
+import { Role } from '@kitchen/shared-types';
 
 import { PrismaClient } from '../generated/prisma/client';
 import { runUnscoped, runWithHousehold } from '../src/common/household-context';

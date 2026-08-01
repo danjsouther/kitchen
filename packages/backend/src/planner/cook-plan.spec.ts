@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { UnitKind } from '@recipes/shared-types';
+import { UnitKind } from '@kitchen/shared-types';
 
 import { SkipReason, mergeWithdrawals, planCook, type CookLine } from './cook-plan';
 

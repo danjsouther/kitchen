@@ -1,4 +1,4 @@
-import { slugify } from '@recipes/shared-types';
+import { slugify } from '@kitchen/shared-types';
 
 /** Tried before giving up and falling back to a random suffix. */
 const MAX_ATTEMPTS = 100;

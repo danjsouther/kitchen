@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Role } from '@recipes/shared-types';
+import type { Role } from '@kitchen/shared-types';
 
 import { ROLES_KEY } from '../auth.constants';
 import type { AuthenticatedUser } from '../types';

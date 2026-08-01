@@ -4,6 +4,21 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — Rename the app to Kitchen (2026-08-01)
+
+Renamed the app from "Recipes" to "Kitchen" — page title, nav bar brand, root
+`package.json` name, and the `@recipes/shared-types` workspace package (now
+`@kitchen/shared-types`, updated across every importing file). The `/recipes`
+route and its "Recipes" nav label are untouched: those name the recipe-collection
+feature, not the app itself.
+
+### Fixed — Stale model list in the tenancy classification test (2026-08-01)
+
+`tenancy.spec.ts` hand-maintains a list of every Prisma model to check that
+`tenancy.ts` classifies all of them; it was never updated when `ScanQueueEntry`
+was added, so the "covers every model in the schema" test failed even though
+`tenancy.ts` itself classified the model correctly.
+
 ## 0.2.1 (2026-08-01)
 
 ### Changed — Deployable frontend port (2026-08-01)

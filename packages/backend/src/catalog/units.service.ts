@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
-import type { UnitDef } from '@recipes/shared-types';
+import type { UnitDef } from '@kitchen/shared-types';
 
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type { CreateUnitDto } from './dto/catalog.dto';

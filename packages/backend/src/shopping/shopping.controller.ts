@@ -12,7 +12,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import type { ListStatus } from '@recipes/shared-types';
+import type { ListStatus } from '@kitchen/shared-types';
 
 import { CurrentUser } from '../auth/decorators';
 import {

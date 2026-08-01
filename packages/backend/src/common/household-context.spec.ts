@@ -1,4 +1,4 @@
-import { Role } from '@recipes/shared-types';
+import { Role } from '@kitchen/shared-types';
 
 import {
   getHouseholdContext,

@@ -11,7 +11,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { UnitKind } from '@recipes/shared-types';
+import { UnitKind } from '@kitchen/shared-types';
 
 const UNIT_KINDS = Object.values(UnitKind);
 

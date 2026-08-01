@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Put } from '@nestjs/common';
-import { Role } from '@recipes/shared-types';
+import { Role } from '@kitchen/shared-types';
 
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AiConfigService } from './ai-config.service';

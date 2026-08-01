@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { ConversionFailure, ItemSource, UnitKind, type UnitDef } from '@recipes/shared-types';
+import { ConversionFailure, ItemSource, UnitKind, type UnitDef } from '@kitchen/shared-types';
 
 import {
   estimatePrice,

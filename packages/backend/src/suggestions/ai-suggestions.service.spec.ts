@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { UnitKind, type UnitDef } from '@recipes/shared-types';
+import { UnitKind, type UnitDef } from '@kitchen/shared-types';
 
 import { AiSuggestionsService, summariseMatch } from './ai-suggestions.service';
 import type { RecipeMatch } from './pantry-match';

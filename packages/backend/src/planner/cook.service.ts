@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { PlanStatus, TxKind } from '@recipes/shared-types';
+import { PlanStatus, TxKind } from '@kitchen/shared-types';
 
 import { toUnitDef } from '../catalog/units.service';
 import { planDeduction } from '../pantry/deduction';

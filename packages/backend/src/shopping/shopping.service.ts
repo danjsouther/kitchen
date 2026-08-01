@@ -13,7 +13,7 @@ import {
   TxKind,
   scaleForServings,
   type UnitDef,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 import { toUnitDef } from '../catalog/units.service';
 import { parseDate } from '../planner/planner.service';

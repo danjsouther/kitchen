@@ -1,4 +1,4 @@
-import { ConversionFailure, UnitKind } from '@recipes/shared-types';
+import { ConversionFailure, UnitKind } from '@kitchen/shared-types';
 
 import { byExpiryThenId, planDeduction } from './deduction';
 

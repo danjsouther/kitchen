@@ -24,7 +24,7 @@ import {
   UnitDef,
   convert,
   scaleForServings,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 /** What the pantry holds for one ingredient, already folded into a single unit. */
 export interface PantryBalance {

@@ -17,7 +17,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { TagKind } from '@recipes/shared-types';
+import { TagKind } from '@kitchen/shared-types';
 
 /** Bounds chosen to be generous for real recipes but to stop absurd payloads. */
 const MAX_INGREDIENTS = 200;

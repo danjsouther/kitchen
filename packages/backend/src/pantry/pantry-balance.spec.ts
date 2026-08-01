@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { ConversionFailure, UnitKind } from '@recipes/shared-types';
+import { ConversionFailure, UnitKind } from '@kitchen/shared-types';
 
 import { balanceFor, chooseTargetUnit, shortfallAgainstPar } from './pantry-balance';
 

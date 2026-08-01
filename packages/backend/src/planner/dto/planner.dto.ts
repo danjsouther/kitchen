@@ -10,7 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { MealSlot, PlanStatus } from '@recipes/shared-types';
+import { MealSlot, PlanStatus } from '@kitchen/shared-types';
 
 const SLOTS = Object.values(MealSlot);
 const STATUSES = Object.values(PlanStatus);

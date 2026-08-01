@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { slugify } from '@recipes/shared-types';
+import { slugify } from '@kitchen/shared-types';
 import { config as loadEnv } from 'dotenv';
 
 import { PrismaClient } from '../../generated/prisma/client';

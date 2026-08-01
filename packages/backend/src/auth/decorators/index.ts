@@ -1,6 +1,6 @@
 import { SetMetadata, createParamDecorator } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
-import type { Role } from '@recipes/shared-types';
+import type { Role } from '@kitchen/shared-types';
 
 import { IS_PUBLIC_KEY, ROLES_KEY } from '../auth.constants';
 import type { AuthenticatedUser } from '../types';

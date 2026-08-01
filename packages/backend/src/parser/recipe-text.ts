@@ -13,7 +13,7 @@
  */
 
 import Decimal from 'decimal.js';
-import { parseQuantity, slugify } from '@recipes/shared-types';
+import { parseQuantity, slugify } from '@kitchen/shared-types';
 
 export const LineKind = {
   INGREDIENT: 'INGREDIENT',

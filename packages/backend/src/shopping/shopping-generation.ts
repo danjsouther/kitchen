@@ -18,7 +18,7 @@ import {
   ItemSource,
   UnitDef,
   convert,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 /** One scaled requirement from one planned meal. */
 export interface DemandLine {

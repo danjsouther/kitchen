@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import type { UnitDef } from '@recipes/shared-types';
+import type { UnitDef } from '@kitchen/shared-types';
 
 import { toUnitDef } from '../catalog/units.service';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';

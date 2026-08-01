@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { matchCandidates } from '@recipes/shared-types';
+import { matchCandidates } from '@kitchen/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { requireHouseholdId } from '../common/household-context';

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PlanStatus } from '@recipes/shared-types';
+import { PlanStatus } from '@kitchen/shared-types';
 
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type {

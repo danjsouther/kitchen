@@ -10,7 +10,7 @@ import {
   formatWithUnit,
   scaleForServings,
   slugify,
-} from '@recipes/shared-types';
+} from '@kitchen/shared-types';
 
 import { uniqueSlug } from '../common/unique-slug';
 import { IngredientsService } from '../catalog/ingredients.service';
