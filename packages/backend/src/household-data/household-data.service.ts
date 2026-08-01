@@ -155,6 +155,20 @@ export class HouseholdDataService {
     const localOrNull = (map: Map<number, number>, id: number | null): LocalRef | null =>
       id === null ? null : local(map, id);
 
+    /**
+     * Same as `localOrNull`, but for the one reference in the schema that is
+     * not a real foreign key: `ShoppingListItem.sourcePlannedMealId` has no
+     * `@relation` and nothing enforces or cascades it, so it can legitimately
+     * dangle once the planned meal it names has been deleted. Treating that
+     * as "unknown" (null) matches how the rest of the app already treats it —
+     * nothing reads this field expecting it to always resolve.
+     */
+    const softLocalOrNull = (map: Map<number, number>, id: number | null): LocalRef | null => {
+      if (id === null) return null;
+      const key = map.get(id);
+      return key === undefined ? null : { key };
+    };
+
     const units: ExportedUnit[] = ownUnits.map((u) => ({
       key: unitKeyByDbId.get(u.id)!,
       name: u.name,
@@ -286,7 +300,7 @@ export class HouseholdDataService {
         quantity: i.quantity?.toString() ?? null,
         unit: unitRef(i.unitId),
         source: i.source,
-        sourcePlannedMeal: localOrNull(plannedMealKeyByDbId, i.sourcePlannedMealId),
+        sourcePlannedMeal: softLocalOrNull(plannedMealKeyByDbId, i.sourcePlannedMealId),
         store: localOrNull(storeKeyByDbId, i.storeId),
         brand: i.brand,
         productBarcode: i.productId,

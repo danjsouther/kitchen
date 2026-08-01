@@ -4,6 +4,15 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Household export crashing on a dangling shopping-list reference (2026-08-01)
+
+`ShoppingListItem.sourcePlannedMealId` has no real foreign key — nothing
+enforces or cascades it — so it can legitimately point at a planned meal that
+was later deleted. The household export treated every such reference as a
+bug and threw instead of exporting `null`, which crashed the whole export for
+any household that had ever removed a planned meal after generating a
+shopping list from it.
+
 ### Added — Whole-household data export and restore (2026-08-01)
 
 Added `GET /household-data/export` and `POST /household-data/import`
