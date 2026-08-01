@@ -455,6 +455,19 @@ export class PantryItemFormComponent {
           const brand = result.product.brands.split(",")[0]?.trim() ?? "";
           if (brand) this.model.update((m) => ({ ...m, brand: m.brand || brand }));
         }
+
+        // packQuantity/packUnitId are null together or not at all (see
+        // CLAUDE.md), so filling one without the other never happens. Only
+        // fills fields the user has not already touched, so a rescan cannot
+        // clobber an amount that was typed by hand.
+        const product = result.product;
+        if (product?.packQuantity && product.packUnitId) {
+          this.model.update((m) => ({
+            ...m,
+            quantity: m.quantity || product.packQuantity!,
+            unitId: m.unitId === 0 ? product.packUnitId! : m.unitId,
+          }));
+        }
       },
       error: (error: unknown) => {
         this.lookingUp.set(false);

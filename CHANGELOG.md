@@ -4,6 +4,13 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Pantry form fills amount and unit from the scanned product (2026-07-31)
+
+Picking a product by barcode or by name now prefills `how much` and `unit`
+from the product's pack size (`packQuantity`/`packUnitId`), which are null
+together or not at all. Only fills fields still at their empty/unset default,
+so a rescan can't clobber an amount typed by hand.
+
 ### Added — mkcert HTTPS dev setup for phone camera scanning (2026-07-31)
 
 Camera access requires a secure context, and the dev server was LAN-reachable
