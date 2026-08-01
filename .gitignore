@@ -18,6 +18,10 @@ dist/
 # It is refreshed monthly from OFF and is never part of the repo or the image.
 /packages/backend/data/
 
+# mkcert-issued local dev certs (see docs/DEV-HTTPS.md) — machine-specific,
+# never trusted outside this machine + whatever phones you've enrolled.
+/packages/frontend/tls/
+
 # OS / editor
 .DS_Store
 Thumbs.db

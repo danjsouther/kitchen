@@ -13,6 +13,7 @@
     "dev": "npm run build -w packages/shared-types && concurrently -n backend,frontend -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
     "dev:backend": "npm run start:dev -w packages/backend",
     "dev:frontend": "npm run start -w packages/frontend",
+    "dev:frontend:https": "npm exec -w packages/frontend -- ng serve --configuration development,https",
     "build": "npm run build -w packages/shared-types && npm run build -w packages/backend && npm run build -w packages/frontend",
     "test": "npm run build -w packages/shared-types && npm test -w packages/shared-types && npm test -w packages/backend",
     "smoke": "npm run smoke -w packages/backend",

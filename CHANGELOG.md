@@ -4,6 +4,17 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — mkcert HTTPS dev setup for phone camera scanning (2026-07-31)
+
+Camera access requires a secure context, and the dev server was LAN-reachable
+but plain HTTP — so `navigator.mediaDevices` was `undefined` when a phone
+opened it over the network, and the barcode scanner's "Scan" button never
+appeared even though the component itself was already correct. Added an
+`https` `ng serve` configuration (`packages/frontend/angular.json`), a
+`dev:frontend:https` script, and `docs/DEV-HTTPS.md` walking through mkcert
+setup and trusting the local CA on iOS. `packages/frontend/tls/` is
+gitignored — the certs are machine-specific and never committed.
+
 ## 0.1.0 (2026-07-31)
 
 ### Added — Vendor the git and playwright-skill Claude Code skills (2026-07-31)

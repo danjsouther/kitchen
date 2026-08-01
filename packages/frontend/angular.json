@@ -73,6 +73,11 @@
             },
             "development": {
               "buildTarget": "frontend:build:development"
+            },
+            "https": {
+              "ssl": true,
+              "sslCert": "tls/dev-cert.pem",
+              "sslKey": "tls/dev-key.pem"
             }
           },
           "defaultConfiguration": "development"
