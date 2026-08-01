@@ -159,6 +159,11 @@ export interface BarcodeLookup {
   suggestedIngredients: Ingredient[];
 }
 
+/** A barcode queued from a multi-item scan session, not yet turned into a lot. */
+export interface ScanQueueEntry extends BarcodeLookup {
+  id: number;
+}
+
 export interface AuthUser {
   id: number;
   householdId: number;

@@ -1,4 +1,5 @@
 import { Component,
+  effect,
   inject,
   input,
   linkedSignal,
@@ -35,6 +36,7 @@ import type {
   PantryItemWrite,
   PantryLot,
   Product,
+  ScanQueueEntry,
   StorageLocation,
   Unit,
 } from "../core/models";
@@ -74,16 +76,18 @@ import type {
             <p class="muted small">{{ product.name }} · {{ product.barcode }}</p>
           }
         } @else {
-          <app-barcode-scan
-            label="Barcode"
-            hint="Optional. Scanning fills the rest in."
-            (scanned)="onScanned($event)"
-          />
+          @if (!prefill()) {
+            <app-barcode-scan
+              label="Barcode"
+              hint="Optional. Scanning fills the rest in."
+              (scanned)="onScanned($event)"
+            />
 
-          <app-product-picker
-            label="Or find by name"
-            (picked)="onProductPicked($event)"
-          />
+            <app-product-picker
+              label="Or find by name"
+              (picked)="onProductPicked($event)"
+            />
+          }
 
           @if (lookingUp()) {
             <mat-progress-bar mode="indeterminate" />
@@ -309,6 +313,12 @@ export class PantryItemFormComponent {
 
   /** Present when editing; absent when adding. */
   readonly lot = input<PantryLot | null>(null);
+  /**
+   * A barcode already scanned and looked up elsewhere (the scan queue). When
+   * set, the form skips its own scan input and product picker and goes
+   * straight to showing this product's card and filling the model from it.
+   */
+  readonly prefill = input<ScanQueueEntry | null>(null);
   readonly units = input.required<Unit[]>();
   readonly locations = input.required<StorageLocation[]>();
 
@@ -409,6 +419,20 @@ export class PantryItemFormComponent {
     min(path.ingredientId, 1, { message: "Pick an ingredient." });
   });
 
+  constructor() {
+    // Seeds the same state a live scan would, once per distinct prefill —
+    // guarded on the entry's id rather than running once in the constructor,
+    // for the same reason `model` seeds via linkedSignal: the scan-queue
+    // flow keeps this component alive across items, only the input changes.
+    let seededFor: number | null = null;
+    effect(() => {
+      const entry = this.prefill();
+      if (!entry || entry.id === seededFor) return;
+      seededFor = entry.id;
+      this.applyLookup(entry);
+    });
+  }
+
   /** The first message worth showing, once the user has actually been there. */
   firstError(state: {
     touched: () => boolean;
@@ -440,34 +464,7 @@ export class PantryItemFormComponent {
     this.api.lookupBarcode(code).subscribe({
       next: (result) => {
         this.lookingUp.set(false);
-        this.scan.set(result);
-
-        if (result.effectiveIngredient) {
-          this.applyIngredient(result.effectiveIngredient);
-        } else {
-          // A new scan supersedes whatever the last one filled in, rather than
-          // leaving the previous product's ingredient under the new barcode.
-          this.pickerText.set("");
-          this.model.update((m) => ({ ...m, ingredientId: 0 }));
-        }
-
-        if (result.product?.brands) {
-          const brand = result.product.brands.split(",")[0]?.trim() ?? "";
-          if (brand) this.model.update((m) => ({ ...m, brand: m.brand || brand }));
-        }
-
-        // packQuantity/packUnitId are null together or not at all (see
-        // CLAUDE.md), so filling one without the other never happens. Only
-        // fills fields the user has not already touched, so a rescan cannot
-        // clobber an amount that was typed by hand.
-        const product = result.product;
-        if (product?.packQuantity && product.packUnitId) {
-          this.model.update((m) => ({
-            ...m,
-            quantity: m.quantity || product.packQuantity!,
-            unitId: m.unitId === 0 ? product.packUnitId! : m.unitId,
-          }));
-        }
+        this.applyLookup(result);
       },
       error: (error: unknown) => {
         this.lookingUp.set(false);
@@ -475,6 +472,44 @@ export class PantryItemFormComponent {
         this.notify.error(error, "Could not look that barcode up.");
       },
     });
+  }
+
+  /**
+   * Fills in whatever a barcode lookup can, whether it came from a live scan
+   * or a queue entry looked up earlier.
+   *
+   * Does not write an override merely by scanning — stocking the consensus
+   * default leaves the household on the live crowd ranking.
+   */
+  private applyLookup(result: BarcodeLookup): void {
+    this.scan.set(result);
+
+    if (result.effectiveIngredient) {
+      this.applyIngredient(result.effectiveIngredient);
+    } else {
+      // A new scan supersedes whatever the last one filled in, rather than
+      // leaving the previous product's ingredient under the new barcode.
+      this.pickerText.set("");
+      this.model.update((m) => ({ ...m, ingredientId: 0 }));
+    }
+
+    if (result.product?.brands) {
+      const brand = result.product.brands.split(",")[0]?.trim() ?? "";
+      if (brand) this.model.update((m) => ({ ...m, brand: m.brand || brand }));
+    }
+
+    // packQuantity/packUnitId are null together or not at all (see
+    // CLAUDE.md), so filling one without the other never happens. Only
+    // fills fields the user has not already touched, so a rescan cannot
+    // clobber an amount that was typed by hand.
+    const product = result.product;
+    if (product?.packQuantity && product.packUnitId) {
+      this.model.update((m) => ({
+        ...m,
+        quantity: m.quantity || product.packQuantity!,
+        unitId: m.unitId === 0 ? product.packUnitId! : m.unitId,
+      }));
+    }
   }
 
   /** Pins a household override for the scanned barcode. */

@@ -190,6 +190,23 @@ export class ApiService {
     return this.delete<{ id: number; discarded: string }>(`/pantry/${id}`, { reason });
   }
 
+  /** Barcodes queued from a multi-item scan session, not yet turned into lots. */
+  scanQueue() {
+    return this.get<M.ScanQueueEntry[]>('/pantry/scan-queue');
+  }
+
+  addToScanQueue(barcode: string) {
+    return this.post<M.ScanQueueEntry>('/pantry/scan-queue', { barcode });
+  }
+
+  removeFromScanQueue(id: number) {
+    return this.delete<void>(`/pantry/scan-queue/${id}`);
+  }
+
+  clearScanQueue() {
+    return this.delete<void>('/pantry/scan-queue');
+  }
+
   locations() {
     return this.get<M.StorageLocation[]>('/storage-locations');
   }

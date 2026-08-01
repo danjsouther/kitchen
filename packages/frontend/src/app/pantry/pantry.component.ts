@@ -17,6 +17,7 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { trimQuantity, unitLabel } from "../shared/format";
 import { PantryItemFormComponent } from "./pantry-item-form.component";
+import { ScanQueueComponent } from "./scan-queue.component";
 import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
 
 @Component({
@@ -25,6 +26,7 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
     DatePipe,
     RouterLink,
     PantryItemFormComponent,
+    ScanQueueComponent,
     MatButtonModule,
     MatCardModule,
     MatIconModule,
@@ -51,6 +53,10 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
           <mat-icon>category</mat-icon>
           Categories
         </a>
+        <button mat-stroked-button (click)="startScanQueue()">
+          <mat-icon>qr_code_scanner</mat-icon>
+          Scan multiple
+        </button>
         <button mat-flat-button (click)="startAdd()">
           <mat-icon>add</mat-icon>
           Add
@@ -61,6 +67,23 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
         <mat-progress-bar mode="indeterminate" />
       }
 
+      @if (
+        pendingScanCount() > 0 && !scanningQueue() && !adding() && !editing()
+      ) {
+        <mat-card class="resume-banner">
+          <mat-card-content class="row">
+            <mat-icon>qr_code_scanner</mat-icon>
+            <span class="grow">
+              {{ pendingScanCount() }} scanned item{{
+                pendingScanCount() === 1 ? "" : "s"
+              }}
+              waiting to be stocked.
+            </span>
+            <button mat-stroked-button (click)="resumeScanQueue()">Finish stocking</button>
+          </mat-card-content>
+        </mat-card>
+      }
+
       @if (adding() || editing()) {
         <app-pantry-item-form
           [lot]="editing()"
@@ -68,6 +91,16 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
           [locations]="locations()"
           (saved)="onSaved()"
           (cancelled)="closeForm()"
+        />
+      }
+
+      @if (scanningQueue()) {
+        <app-scan-queue
+          [units]="units()"
+          [locations]="locations()"
+          [startInStocking]="resumeInStocking()"
+          (saved)="onScanQueueSaved()"
+          (cancelled)="closeScanQueue()"
         />
       }
 
@@ -179,6 +212,10 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
     </div>
   `,
   styles: `
+    .resume-banner {
+      margin-bottom: 1rem;
+      border-left: 3px solid var(--mat-sys-primary);
+    }
     .tab-body {
       padding-top: 1rem;
       display: flex;
@@ -224,6 +261,10 @@ export class PantryComponent {
   readonly locations = signal<StorageLocation[]>([]);
   readonly adding = signal(false);
   readonly editing = signal<PantryLot | null>(null);
+  readonly scanningQueue = signal(false);
+  readonly resumeInStocking = signal(false);
+  /** Count only — the queue's own contents are loaded by app-scan-queue itself. */
+  readonly pendingScanCount = signal(0);
 
   readonly expiringCount = computed(
     () =>
@@ -248,6 +289,10 @@ export class PantryComponent {
         }
       },
     });
+    this.api.scanQueue().subscribe({
+      next: (entries) => this.pendingScanCount.set(entries.length),
+      error: () => undefined,
+    });
   }
 
   startAdd(): void {
@@ -263,6 +308,32 @@ export class PantryComponent {
   closeForm(): void {
     this.adding.set(false);
     this.editing.set(null);
+  }
+
+  startScanQueue(): void {
+    this.resumeInStocking.set(false);
+    this.scanningQueue.set(true);
+  }
+
+  resumeScanQueue(): void {
+    this.resumeInStocking.set(true);
+    this.scanningQueue.set(true);
+  }
+
+  closeScanQueue(): void {
+    this.scanningQueue.set(false);
+    // Whatever state the queue was left in (cleared, partially stocked, or
+    // untouched) — the banner needs to reflect it, not the count from before
+    // this session opened.
+    this.api.scanQueue().subscribe({
+      next: (entries) => this.pendingScanCount.set(entries.length),
+      error: () => undefined,
+    });
+  }
+
+  onScanQueueSaved(): void {
+    this.closeScanQueue();
+    this.load();
   }
 
   onSaved(): void {

@@ -22,8 +22,10 @@ import {
   UpdateLocationDto,
   UpdatePantryItemDto,
 } from './dto/pantry.dto';
+import { AddScanQueueEntryDto } from './dto/scan-queue.dto';
 import { LocationsService } from './locations.service';
 import { PantryService } from './pantry.service';
+import { ScanQueueService } from './scan-queue.service';
 
 @Controller('storage-locations')
 export class LocationsController {
@@ -118,5 +120,37 @@ export class PantryController {
     @CurrentUser('id') userId: number,
   ) {
     return this.pantry.remove(id, dto?.reason, userId);
+  }
+}
+
+/**
+ * Barcodes queued from a multi-item scan session, not yet turned into lots.
+ *
+ * Registered ahead of `PantryController` in the module so `pantry/scan-queue`
+ * is matched before `PantryController`'s `pantry/:id` — see
+ * `pantry.module.ts`.
+ */
+@Controller('pantry/scan-queue')
+export class ScanQueueController {
+  constructor(private readonly scanQueue: ScanQueueService) {}
+
+  @Get()
+  list() {
+    return this.scanQueue.list();
+  }
+
+  @Post()
+  add(@Body() dto: AddScanQueueEntryDto) {
+    return this.scanQueue.add(dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.scanQueue.remove(id);
+  }
+
+  @Delete()
+  clear() {
+    return this.scanQueue.clear();
   }
 }

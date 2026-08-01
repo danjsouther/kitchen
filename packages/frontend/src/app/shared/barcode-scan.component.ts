@@ -71,8 +71,13 @@ import { MatInputModule } from "@angular/material/input";
       before the stream can be attached to it, and creating it in the same tick
       as starting the camera raced often enough to be a real bug.
     -->
-    <div class="viewer" [hidden]="!scanning()">
+    <div class="viewer" [class.flash]="justDetected()" [hidden]="!scanning()">
       <video #video playsinline muted></video>
+      @if (justDetected()) {
+        <div class="flash-badge" aria-hidden="true">
+          <mat-icon>check_circle</mat-icon>
+        </div>
+      }
       <p class="muted small">Hold the barcode steady in the frame.</p>
     </div>
 
@@ -84,12 +89,34 @@ import { MatInputModule } from "@angular/material/input";
     .scan { display: flex; gap: .5rem; align-items: flex-start; }
     .grow { flex: 1; }
     .small { font-size: .85rem; }
-    .viewer { margin-bottom: .5rem; }
+    .viewer { position: relative; margin-bottom: .5rem; }
     video {
       width: 100%;
       max-width: 24rem;
       border-radius: 8px;
       background: #000;
+      outline: 4px solid transparent;
+      transition: outline-color .1s ease-out;
+    }
+    /* A short outline flash + checkmark confirm a read without making anyone
+       read text — the phone is usually pointed at a barcode, not the screen. */
+    .viewer.flash video {
+      outline-color: var(--mat-sys-primary);
+    }
+    .flash-badge {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      color: var(--mat-sys-primary);
+    }
+    .flash-badge mat-icon {
+      font-size: 3rem;
+      width: 3rem;
+      height: 3rem;
+      filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.6));
     }
   `,
 })
@@ -99,6 +126,14 @@ export class BarcodeScanComponent {
   readonly label = input("Barcode");
   readonly hint = input("");
 
+  /**
+   * Keeps the camera running after a read instead of stopping it, for
+   * scanning several items in one session. The caller is responsible for
+   * de-duplicating what it does with each emission; this component only
+   * suppresses the same code firing again while it's still in frame.
+   */
+  readonly continuous = input(false);
+
   /** A barcode the user has committed to, in whatever format they gave it. */
   readonly scanned = output<string>();
 
@@ -106,10 +141,22 @@ export class BarcodeScanComponent {
   readonly scanning = signal(false);
   readonly cameraError = signal("");
 
+  /** True for a moment after a camera read, for the outline flash + checkmark. */
+  readonly justDetected = signal(false);
+  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
   private readonly video = viewChild<ElementRef<HTMLVideoElement>>("video");
 
   /** Stops whichever reader is running. Set while scanning, null otherwise. */
   private stop: (() => void) | null = null;
+
+  /** The last code read in continuous mode, and when — for the cooldown below. */
+  private lastCode = "";
+  private lastDetectedAt = 0;
+
+  /** How long a code is ignored for after firing, so holding it in frame
+   * doesn't queue it dozens of times a second. */
+  private static readonly RESCAN_COOLDOWN_MS = 2000;
 
   /**
    * Whether a camera scan is worth offering at all.
@@ -125,7 +172,10 @@ export class BarcodeScanComponent {
   readonly canSubmit = computed(() => /\d/.test(this.text()));
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopCamera());
+    this.destroyRef.onDestroy(() => {
+      this.stopCamera();
+      if (this.flashTimer) clearTimeout(this.flashTimer);
+    });
   }
 
   onType(value: string): void {
@@ -245,13 +295,51 @@ export class BarcodeScanComponent {
   }
 
   /**
-   * A successful read. Stops the camera first — leaving it running would keep
-   * firing on the same barcode, re-emitting it several times a second.
+   * A successful read.
+   *
+   * Non-continuous (the default): stops the camera first — leaving it running
+   * would keep firing on the same barcode, re-emitting it several times a
+   * second.
+   *
+   * Continuous: the camera keeps running for the next item, so the same
+   * cooldown is enforced here instead, keyed on the code itself rather than
+   * "any recent read" — moving straight from one barcode to a different one
+   * should not be held up by the first one's cooldown.
    */
   private onDetected(code: string): void {
+    if (this.continuous()) {
+      const now = Date.now();
+      if (
+        code === this.lastCode &&
+        now - this.lastDetectedAt < BarcodeScanComponent.RESCAN_COOLDOWN_MS
+      ) {
+        return;
+      }
+      this.lastCode = code;
+      this.lastDetectedAt = now;
+      this.flash();
+      this.text.set("");
+      this.scanned.emit(code);
+      return;
+    }
+
+    // Not `flash()`: stopCamera() below hides the viewer this tick, so a
+    // flash timed for it would never be seen.
     this.stopCamera();
     this.text.set(code);
     this.scanned.emit(code);
+  }
+
+  /**
+   * A moment of outline + checkmark + (where supported) a short vibration —
+   * confirmation that doesn't depend on reading the screen, since the phone
+   * is pointed at the item being scanned, not held up to be looked at.
+   */
+  private flash(): void {
+    navigator.vibrate?.(60);
+    this.justDetected.set(true);
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => this.justDetected.set(false), 400);
   }
 
   private stopCamera(): void {

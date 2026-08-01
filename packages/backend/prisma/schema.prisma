@@ -114,6 +114,7 @@ model Household {
   receiveSessions   ReceiveSession[]
   priceObservations PriceObservation[]
   productBindings   ProductBinding[]
+  scanQueueEntries  ScanQueueEntry[]
 
   @@map("household")
 }
@@ -290,6 +291,24 @@ model ProductBinding {
   @@unique([householdId, productId])
   @@index([householdId, ingredientId])
   @@map("product_binding")
+}
+
+/// A barcode scanned during a multi-item scan session, waiting to be turned
+/// into a pantry lot. Not a Product relation: a barcode OFF has never heard of
+/// is still a valid queue entry (the lookup already treats a miss as normal,
+/// not an error), and the queue outlives any given lookup result anyway — it
+/// stores only the barcode and re-resolves the product on every read.
+model ScanQueueEntry {
+  id          Int      @id @default(autoincrement())
+  householdId Int
+  barcode     String
+  createdOn   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, barcode])
+  @@index([householdId, createdOn])
+  @@map("scan_queue_entry")
 }
 
 /// Alternate names the paste-and-parse matcher resolves against

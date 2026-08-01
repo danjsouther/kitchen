@@ -4,6 +4,23 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Scan several pantry items before stocking them (2026-08-01)
+
+Added a "Scan multiple" flow on the pantry page: `app-barcode-scan` gained an
+opt-in `continuous` mode (camera stays on, with a per-code cooldown and an
+outline-flash/vibration confirmation on each read) so a shopping bag's worth
+of barcodes can be scanned back-to-back into a queue, then stocked one at a
+time afterward through the existing per-lot form. The queue lives server-side
+(`ScanQueueEntry`, household-scoped, barcode-only — everything else is
+re-resolved from `ProductsService.byBarcode()` on read) rather than in page
+state, so it survives a refresh and shows up on another device via a "N
+scanned items waiting to be stocked" banner. New `pantry/scan-queue`
+endpoints (`GET`/`POST`/`DELETE :id`/`DELETE`); `PantryItemFormComponent`
+gained a `prefill` input so it can seed straight from a queued lookup instead
+of showing its own scan UI. Every scan (camera or manual) now also gets a
+snackbar confirming what happened — "Added <product>." or "Already in the
+queue." — instead of the queue changing with no acknowledgment.
+
 ### Added — Pantry form fills amount and unit from the scanned product (2026-07-31)
 
 Picking a product by barcode or by name now prefills `how much` and `unit`

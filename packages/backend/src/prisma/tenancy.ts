@@ -36,6 +36,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   'ReceiveSession',
   'PriceObservation',
   'ProductBinding',
+  'ScanQueueEntry',
 ]);
 
 /**
