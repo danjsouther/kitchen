@@ -13,6 +13,7 @@ import {
 
 import { CurrentUser } from '../auth/decorators';
 import {
+  BalanceQueryDto,
   ConsumeDto,
   CreateLocationDto,
   CreatePantryItemDto,
@@ -63,8 +64,8 @@ export class PantryController {
 
   /** On-hand totals per ingredient, each folded into one unit. */
   @Get('balances')
-  balances() {
-    return this.pantry.balances();
+  balances(@Query() query: BalanceQueryDto) {
+    return this.pantry.balancesPage(query);
   }
 
   @Get('pars')

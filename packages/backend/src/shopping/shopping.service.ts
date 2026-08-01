@@ -19,6 +19,7 @@ import { toUnitDef } from '../catalog/units.service';
 import { parseDate } from '../planner/planner.service';
 import { ProductsService } from '../products/products.service';
 import { SuggestionsService } from '../suggestions/suggestions.service';
+import { paged, resolveLimit } from '../common/pagination';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { StoresService } from './stores.service';
 import {
@@ -33,6 +34,7 @@ import type {
   CreateListDto,
   GenerateListDto,
   ReceiveDto,
+  ShoppingListQueryDto,
   UpdateListItemDto,
 } from './dto/shopping.dto';
 
@@ -72,15 +74,30 @@ export class ShoppingService {
 
   // -- Lists ---------------------------------------------------------------
 
-  list(status?: ListStatus) {
-    return this.db.shoppingList.findMany({
-      where: status ? { status } : {},
-      orderBy: { createdOn: 'desc' },
-      include: {
-        store: { select: { id: true, name: true } },
-        _count: { select: { items: true } },
-      },
-    });
+  async list(query: ShoppingListQueryDto) {
+    const where: Record<string, unknown> = {};
+    if (query.status) where.status = query.status;
+    const term = query.q?.trim();
+    if (term) where.name = { contains: term, mode: 'insensitive' };
+
+    const limit = resolveLimit(query.limit);
+    const offset = query.offset ?? 0;
+
+    const [total, rows] = await Promise.all([
+      this.db.shoppingList.count({ where }),
+      this.db.shoppingList.findMany({
+        where,
+        orderBy: { createdOn: 'desc' },
+        skip: offset,
+        take: limit,
+        include: {
+          store: { select: { id: true, name: true } },
+          _count: { select: { items: true } },
+        },
+      }),
+    ]);
+
+    return paged(rows, total, limit, offset);
   }
 
   async findOne(id: number) {

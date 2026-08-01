@@ -71,6 +71,7 @@ everyone's costs and data onto one credential.
 - **The API serves `/api/*`** (`setGlobalPrefix('api')`); `nginx.conf` must not
   strip the prefix.
 - **The backend listens on 3000 in the container**, not the 3001 in `.env`.
+- **Local dev server ports: frontend on 4201, backend on 3001.**
 - **`.gitattributes` pins LF.** A CRLF `docker-entrypoint.sh` is a syntax error
   to the container's shell.
 - **`prisma migrate dev` proposes dropping the `pg_trgm` indexes every time —

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
 
-import { BindProductDto, ProductQueryDto } from './dto/products.dto';
+import { BindProductDto, ProductBindingQueryDto, ProductQueryDto } from './dto/products.dto';
 import { ProductsService } from './products.service';
 
 /**
@@ -20,8 +20,8 @@ export class ProductsController {
    * 'bindings' would otherwise be read as a barcode.
    */
   @Get('bindings')
-  listOverrides() {
-    return this.products.listOverrides();
+  listOverrides(@Query() query: ProductBindingQueryDto) {
+    return this.products.listOverrides(query);
   }
 
   @Get('by-barcode/:code')

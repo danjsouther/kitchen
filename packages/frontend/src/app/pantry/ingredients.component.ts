@@ -4,6 +4,7 @@ import { Component,
   input,
   linkedSignal,
   signal,
+  untracked,
 } from "@angular/core";
 import {
   FormField,
@@ -26,12 +27,15 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { PagerComponent } from "../shared/pager.component";
 import type {
   Ingredient,
   IngredientCategory,
   IngredientWrite,
   Unit,
 } from "../core/models";
+
+const PAGE_LIMIT = 20;
 
 /**
  * Catalog admin: the screen that turns "not countable" into a number.
@@ -59,6 +63,7 @@ import type {
     MatProgressBarModule,
     MatSelectModule,
     MatTooltipModule,
+    PagerComponent,
   ],
   template: `
     <div class="page">
@@ -91,7 +96,7 @@ import type {
               <mat-label>Category</mat-label>
               <mat-select
                 [value]="categoryId()"
-                (valueChange)="categoryId.set($event)"
+                (valueChange)="onCategoryChange($event)"
               >
                 <mat-option [value]="null">Any</mat-option>
                 @for (category of categories(); track category.id) {
@@ -250,6 +255,13 @@ import type {
           </mat-card-content>
         </mat-card>
       }
+
+      <app-pager
+        [total]="total()"
+        [limit]="limit"
+        [offset]="offset()"
+        (offsetChange)="onPageChange($event)"
+      />
     </div>
   `,
   styles: `
@@ -296,6 +308,9 @@ export class IngredientsComponent {
   private readonly notify = inject(NotifyService);
 
   readonly results = signal<Ingredient[]>([]);
+  readonly total = signal(0);
+  readonly limit = PAGE_LIMIT;
+  readonly offset = signal(0);
   readonly categories = signal<IngredientCategory[]>([]);
   readonly units = signal<Unit[]>([]);
   readonly loading = signal(false);
@@ -381,13 +396,35 @@ export class IngredientsComponent {
     this.api.categories().subscribe({ next: (c) => this.categories.set(c) });
     this.api.units().subscribe({ next: (u) => this.units.set(u) });
 
-    // Re-runs whenever the search term changes, including when an inbound ?q=
-    // resets it. Reading a signal and firing a request is a genuine side
-    // effect, which is what effect() is for — it is not deriving state.
+    // Re-runs whenever the search term or category filter changes, including
+    // when an inbound ?q= resets the term. Reading a signal and firing a
+    // request is a genuine side effect, which is what effect() is for — it is
+    // not deriving state. A new term or filter makes the previous page
+    // meaningless, so this always resets to page one.
+    //
+    // `untracked` is load-bearing here: `search()` itself reads `this.offset()`
+    // to build its request, and effect() tracks every signal read during its
+    // callback — including reads inside functions it calls. Without
+    // `untracked`, `offset` becomes a dependency of this effect too, so
+    // `onPageChange()` setting `offset` would re-run this effect, which would
+    // immediately reset `offset` back to 0 and undo the page change.
     effect(() => {
       this.query();
-      this.search();
+      this.categoryId();
+      untracked(() => {
+        this.offset.set(0);
+        this.search();
+      });
     });
+  }
+
+  onCategoryChange(categoryId: number | null): void {
+    this.categoryId.set(categoryId);
+  }
+
+  onPageChange(offset: number): void {
+    this.offset.set(offset);
+    this.search();
   }
 
   /** A one-line description of what the app does and does not know about this. */
@@ -413,19 +450,29 @@ export class IngredientsComponent {
     this.loading.set(true);
     const q = this.query().trim();
 
-    this.api.searchIngredients(q, 40, this.categoryId() ?? undefined).subscribe({
-      next: (items) => {
-        // Ignore a response that a later search has already superseded.
-        if (token !== this.searchToken) return;
-        this.results.set(items);
-        this.loading.set(false);
-      },
-      error: (error: unknown) => {
-        if (token !== this.searchToken) return;
-        this.loading.set(false);
-        this.notify.error(error, "Could not search the catalog.");
-      },
-    });
+    this.api
+      .ingredientsPage({
+        q,
+        categoryId: this.categoryId() ?? undefined,
+        limit: this.limit,
+        offset: this.offset(),
+      })
+      .subscribe({
+        next: (page) => {
+          // Ignore a response that a later search has already superseded —
+          // paging clicks and typing can both fire requests faster than they
+          // resolve.
+          if (token !== this.searchToken) return;
+          this.results.set(page.items);
+          this.total.set(page.total);
+          this.loading.set(false);
+        },
+        error: (error: unknown) => {
+          if (token !== this.searchToken) return;
+          this.loading.set(false);
+          this.notify.error(error, "Could not search the catalog.");
+        },
+      });
   }
 
   toggle(item: Ingredient): void {

@@ -15,6 +15,7 @@ import {
 import { uniqueSlug } from '../common/unique-slug';
 import { IngredientsService } from '../catalog/ingredients.service';
 import { UnitsService, toUnitDef } from '../catalog/units.service';
+import { resolveLimit } from '../common/pagination';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type {
   CreateRecipeDto,
@@ -23,9 +24,6 @@ import type {
   RecipeTagDto,
   UpdateRecipeDto,
 } from './dto/recipe.dto';
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
 
 /** A unit row with everything needed both to convert and to label a quantity. */
 interface UnitLabelRow {
@@ -76,7 +74,7 @@ export class RecipesService {
    * payload for a screen that shows none of it.
    */
   async findAll(query: RecipeQueryDto) {
-    const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    const limit = resolveLimit(query.limit);
     const where = buildRecipeWhere(query);
 
     const [total, rows] = await Promise.all([

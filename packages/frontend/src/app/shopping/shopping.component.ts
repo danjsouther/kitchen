@@ -25,12 +25,15 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { amountWithUnit } from "../shared/format";
+import { PagerComponent } from "../shared/pager.component";
 import type {
   Proposal,
   ShoppingListSummary,
   Store,
   Unit,
 } from "../core/models";
+
+const PAGE_LIMIT = 20;
 
 @Component({
   selector: "app-shopping",
@@ -46,6 +49,7 @@ import type {
     MatProgressBarModule,
     MatSelectModule,
     MatTooltipModule,
+    PagerComponent,
   ],
   template: `
     <div class="page">
@@ -159,8 +163,38 @@ import type {
       </mat-card>
 
       <h2>Your lists</h2>
+
+      <div class="row list-filters">
+        <mat-form-field appearance="outline" class="search">
+          <mat-label>Search</mat-label>
+          <input
+            matInput
+            [value]="listQuery()"
+            (input)="onListSearch($any($event.target).value)"
+            placeholder="List name"
+          />
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline" class="status-filter">
+          <mat-label>Status</mat-label>
+          <mat-select [value]="listStatus()" (valueChange)="onListStatusChange($event)">
+            <mat-option value="">Any</mat-option>
+            <mat-option value="ACTIVE">Active</mat-option>
+            <mat-option value="COMPLETED">Completed</mat-option>
+            <mat-option value="ARCHIVED">Archived</mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+
       @if (lists().length === 0) {
-        <p class="empty muted">No lists yet.</p>
+        <p class="empty muted">
+          @if (listQuery()) {
+            Nothing matches “{{ listQuery() }}”.
+          } @else {
+            No lists yet.
+          }
+        </p>
       }
       @for (list of lists(); track list.id) {
         <mat-card class="list-row" [routerLink]="['/shopping', list.id]">
@@ -181,6 +215,13 @@ import type {
           </mat-card-content>
         </mat-card>
       }
+
+      <app-pager
+        [total]="listTotal()"
+        [limit]="listLimit"
+        [offset]="listOffset()"
+        (offsetChange)="onListPageChange($event)"
+      />
     </div>
   `,
   styles: `
@@ -197,6 +238,17 @@ import type {
     }
     .store {
       min-width: 10rem;
+    }
+    .list-filters {
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .search {
+      width: min(360px, 100%);
+    }
+    .status-filter {
+      min-width: 9rem;
     }
     .preview {
       list-style: none;
@@ -245,6 +297,14 @@ export class ShoppingComponent {
   private readonly router = inject(Router);
 
   readonly lists = signal<ShoppingListSummary[]>([]);
+  readonly listTotal = signal(0);
+  readonly listLimit = PAGE_LIMIT;
+  /** Filters, not form data. */
+  readonly listQuery = signal("");
+  readonly listStatus = signal("");
+  readonly listOffset = signal(0);
+  private listSearchTimer?: ReturnType<typeof setTimeout>;
+
   readonly stores = signal<Store[]>([]);
   readonly proposal = signal<Proposal | null>(null);
   readonly busy = signal(false);
@@ -289,16 +349,48 @@ export class ShoppingComponent {
 
 
   constructor() {
-    this.api.shoppingLists().subscribe({
-      next: (lists) => this.lists.set(lists),
-      error: (error: unknown) =>
-        this.notify.error(error, "Could not load your lists."),
-    });
+    this.loadLists();
     this.api.stores().subscribe({ next: (stores) => this.stores.set(stores) });
   }
 
   amount(quantity: string, unit: Unit | null): string {
     return amountWithUnit(quantity, unit);
+  }
+
+  onListSearch(value: string): void {
+    this.listQuery.set(value);
+    this.listOffset.set(0);
+    clearTimeout(this.listSearchTimer);
+    this.listSearchTimer = setTimeout(() => this.loadLists(), 250);
+  }
+
+  onListStatusChange(value: string): void {
+    this.listStatus.set(value);
+    this.listOffset.set(0);
+    this.loadLists();
+  }
+
+  onListPageChange(offset: number): void {
+    this.listOffset.set(offset);
+    this.loadLists();
+  }
+
+  private loadLists(): void {
+    this.api
+      .shoppingLists({
+        status: this.listStatus() || undefined,
+        q: this.listQuery(),
+        limit: this.listLimit,
+        offset: this.listOffset(),
+      })
+      .subscribe({
+        next: (page) => {
+          this.lists.set(page.items);
+          this.listTotal.set(page.total);
+        },
+        error: (error: unknown) =>
+          this.notify.error(error, "Could not load your lists."),
+      });
   }
 
   /** Previews without saving — a generated list is a guess about a week ahead. */

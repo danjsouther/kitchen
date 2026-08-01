@@ -14,7 +14,10 @@ import { MatProgressBarModule } from "@angular/material/progress-bar";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { PagerComponent } from "../shared/pager.component";
 import type { RecipeSummary } from "../core/models";
+
+const PAGE_LIMIT = 20;
 
 @Component({
   selector: "app-recipe-list",
@@ -27,6 +30,7 @@ import type { RecipeSummary } from "../core/models";
     MatIconModule,
     MatInputModule,
     MatProgressBarModule,
+    PagerComponent,
   ],
   template: `
     <div class="page">
@@ -101,6 +105,13 @@ import type { RecipeSummary } from "../core/models";
           </mat-card>
         }
       </div>
+
+      <app-pager
+        [total]="total()"
+        [limit]="limit"
+        [offset]="offset()"
+        (offsetChange)="onPageChange($event)"
+      />
     </div>
   `,
   styles: `
@@ -144,10 +155,13 @@ export class RecipeListComponent {
   private readonly notify = inject(NotifyService);
 
   readonly recipes = signal<RecipeSummary[]>([]);
+  readonly total = signal(0);
   readonly loading = signal(true);
+  readonly limit = PAGE_LIMIT;
 
   /** A filter, not form data. */
   readonly query = signal("");
+  readonly offset = signal(0);
   private searchTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
@@ -160,7 +174,14 @@ export class RecipeListComponent {
     // else writes this back the way [(ngModel)] used to.
     this.query.set(value);
     clearTimeout(this.searchTimer);
-    this.searchTimer = setTimeout(() => this.load(value), 250);
+    // A new search term makes the previous page meaningless.
+    this.offset.set(0);
+    this.searchTimer = setTimeout(() => this.load(value, 0), 250);
+  }
+
+  onPageChange(offset: number): void {
+    this.offset.set(offset);
+    this.load(this.query(), offset);
   }
 
   totalMinutes(recipe: RecipeSummary): number | null {
@@ -168,11 +189,12 @@ export class RecipeListComponent {
     return total > 0 ? total : null;
   }
 
-  private load(q = ""): void {
+  private load(q = "", offset = 0): void {
     this.loading.set(true);
-    this.api.recipes({ q, limit: 60 }).subscribe({
+    this.api.recipes({ q, limit: this.limit, offset }).subscribe({
       next: (page) => {
         this.recipes.set(page.items);
+        this.total.set(page.total);
         this.loading.set(false);
       },
       error: (error: unknown) => {

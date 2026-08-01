@@ -1,6 +1,5 @@
 import {
   Component,
-  computed,
   inject,
   signal,
 } from "@angular/core";
@@ -8,7 +7,9 @@ import { DatePipe } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
+import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
+import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatTabsModule } from "@angular/material/tabs";
 import { MatTooltipModule } from "@angular/material/tooltip";
@@ -16,20 +17,29 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { trimQuantity, unitLabel } from "../shared/format";
+import { PagerComponent } from "../shared/pager.component";
 import { PantryItemFormComponent } from "./pantry-item-form.component";
 import { ScanQueueComponent } from "./scan-queue.component";
 import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
+
+const PAGE_LIMIT = 20;
+/** Mirrors the backend's `EXPIRY_SOON_DAYS` (`pantry.service.ts`) — kept in
+ * sync by hand since nothing shares constants across the API boundary. */
+const EXPIRY_SOON_DAYS = 7;
 
 @Component({
   selector: "app-pantry",
   imports: [
     DatePipe,
     RouterLink,
+    PagerComponent,
     PantryItemFormComponent,
     ScanQueueComponent,
     MatButtonModule,
     MatCardModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressBarModule,
     MatTabsModule,
     MatTooltipModule,
@@ -107,8 +117,25 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
       <mat-tab-group>
         <mat-tab label="What is on hand">
           <div class="tab-body">
+            <mat-form-field appearance="outline" class="search">
+              <mat-label>Search</mat-label>
+              <input
+                matInput
+                [value]="balancesQuery()"
+                (input)="onBalancesSearch($any($event.target).value)"
+                placeholder="Ingredient name"
+              />
+              <mat-icon matSuffix>search</mat-icon>
+            </mat-form-field>
+
             @if (balances().length === 0 && !loading()) {
-              <p class="empty muted">The pantry is empty.</p>
+              <p class="empty muted">
+                @if (balancesQuery()) {
+                  Nothing matches “{{ balancesQuery() }}”.
+                } @else {
+                  The pantry is empty.
+                }
+              </p>
             }
             @for (balance of balances(); track balance.ingredientId) {
               <mat-card>
@@ -162,13 +189,37 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
                 </mat-card-content>
               </mat-card>
             }
+
+            <app-pager
+              [total]="balancesTotal()"
+              [limit]="limit"
+              [offset]="balancesOffset()"
+              (offsetChange)="onBalancesPageChange($event)"
+            />
           </div>
         </mat-tab>
 
         <mat-tab label="Every lot">
           <div class="tab-body">
+            <mat-form-field appearance="outline" class="search">
+              <mat-label>Search</mat-label>
+              <input
+                matInput
+                [value]="lotsQuery()"
+                (input)="onLotsSearch($any($event.target).value)"
+                placeholder="Ingredient name or brand"
+              />
+              <mat-icon matSuffix>search</mat-icon>
+            </mat-form-field>
+
             @if (lots().length === 0 && !loading()) {
-              <p class="empty muted">Nothing stored yet.</p>
+              <p class="empty muted">
+                @if (lotsQuery()) {
+                  Nothing matches “{{ lotsQuery() }}”.
+                } @else {
+                  Nothing stored yet.
+                }
+              </p>
             }
             @for (lot of lots(); track lot.id) {
               <mat-card
@@ -206,6 +257,13 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
                 </mat-card-content>
               </mat-card>
             }
+
+            <app-pager
+              [total]="lotsTotal()"
+              [limit]="limit"
+              [offset]="lotsOffset()"
+              (offsetChange)="onLotsPageChange($event)"
+            />
           </div>
         </mat-tab>
       </mat-tab-group>
@@ -221,6 +279,9 @@ import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
+    }
+    .search {
+      width: min(460px, 100%);
     }
     .amount {
       font-variant-numeric: tabular-nums;
@@ -254,8 +315,19 @@ export class PantryComponent {
   private readonly notify = inject(NotifyService);
 
   readonly lots = signal<PantryLot[]>([]);
+  readonly lotsTotal = signal(0);
   readonly balances = signal<Balance[]>([]);
+  readonly balancesTotal = signal(0);
   readonly loading = signal(true);
+  readonly limit = PAGE_LIMIT;
+
+  /** Filters, not form data — one search + page per tab. */
+  readonly lotsQuery = signal("");
+  readonly lotsOffset = signal(0);
+  readonly balancesQuery = signal("");
+  readonly balancesOffset = signal(0);
+  private lotsSearchTimer?: ReturnType<typeof setTimeout>;
+  private balancesSearchTimer?: ReturnType<typeof setTimeout>;
 
   readonly units = signal<Unit[]>([]);
   readonly locations = signal<StorageLocation[]>([]);
@@ -266,15 +338,17 @@ export class PantryComponent {
   /** Count only — the queue's own contents are loaded by app-scan-queue itself. */
   readonly pendingScanCount = signal(0);
 
-  readonly expiringCount = computed(
-    () =>
-      this.lots().filter(
-        (lot) => lot.expiry === "expired" || lot.expiry === "soon",
-      ).length,
-  );
+  /**
+   * A whole-pantry count, not a page-scoped one — `lots()` only holds the
+   * current page, so this reads `.total` from a `limit: 1` call rather than
+   * summing over whatever page happens to be loaded.
+   */
+  readonly expiringCount = signal(0);
 
   constructor() {
-    this.load();
+    this.loadLots();
+    this.loadBalances();
+    this.loadExpiringCount();
     this.api.units().subscribe({ next: (units) => this.units.set(units) });
     this.api.locations().subscribe({
       next: (locations) => {
@@ -333,12 +407,36 @@ export class PantryComponent {
 
   onScanQueueSaved(): void {
     this.closeScanQueue();
-    this.load();
+    this.reloadAll();
   }
 
   onSaved(): void {
     this.closeForm();
-    this.load();
+    this.reloadAll();
+  }
+
+  onLotsSearch(value: string): void {
+    this.lotsQuery.set(value);
+    this.lotsOffset.set(0);
+    clearTimeout(this.lotsSearchTimer);
+    this.lotsSearchTimer = setTimeout(() => this.loadLots(), 250);
+  }
+
+  onLotsPageChange(offset: number): void {
+    this.lotsOffset.set(offset);
+    this.loadLots();
+  }
+
+  onBalancesSearch(value: string): void {
+    this.balancesQuery.set(value);
+    this.balancesOffset.set(0);
+    clearTimeout(this.balancesSearchTimer);
+    this.balancesSearchTimer = setTimeout(() => this.loadBalances(), 250);
+  }
+
+  onBalancesPageChange(offset: number): void {
+    this.balancesOffset.set(offset);
+    this.loadBalances();
   }
 
   round(value: string): string {
@@ -380,24 +478,49 @@ export class PantryComponent {
     return "These units cannot be reconciled.";
   }
 
-  private load(): void {
+  private reloadAll(): void {
+    this.loadLots();
+    this.loadBalances();
+    this.loadExpiringCount();
+  }
+
+  private loadLots(): void {
     this.loading.set(true);
+    this.api
+      .pantry({ q: this.lotsQuery(), limit: this.limit, offset: this.lotsOffset() })
+      .subscribe({
+        next: (page) => {
+          this.lots.set(page.items);
+          this.lotsTotal.set(page.total);
+          this.loading.set(false);
+        },
+        error: (error: unknown) => {
+          this.loading.set(false);
+          this.notify.error(error, "Could not load the pantry.");
+        },
+      });
+  }
 
-    this.api.pantry().subscribe({
-      next: (lots) => this.lots.set(lots),
-      error: (error: unknown) =>
-        this.notify.error(error, "Could not load the pantry."),
-    });
+  private loadBalances(): void {
+    this.api
+      .balances({ q: this.balancesQuery(), limit: this.limit, offset: this.balancesOffset() })
+      .subscribe({
+        next: (page) => {
+          this.balances.set(page.items);
+          this.balancesTotal.set(page.total);
+        },
+        error: (error: unknown) =>
+          this.notify.error(error, "Could not load balances."),
+      });
+  }
 
-    this.api.balances().subscribe({
-      next: (balances) => {
-        this.balances.set(balances);
-        this.loading.set(false);
-      },
-      error: (error: unknown) => {
-        this.loading.set(false);
-        this.notify.error(error, "Could not load balances.");
-      },
-    });
+  /** A single row's worth of a filtered `pantry()` call, read only for `.total`. */
+  private loadExpiringCount(): void {
+    this.api
+      .pantry({ expiringWithinDays: EXPIRY_SOON_DAYS, limit: 1 })
+      .subscribe({
+        next: (page) => this.expiringCount.set(page.total),
+        error: () => undefined,
+      });
   }
 }

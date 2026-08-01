@@ -63,6 +63,44 @@ export class PantryQueryDto {
   @IsInt()
   @Min(0)
   expiringWithinDays?: number;
+
+  /** Matches the ingredient name or brand on a lot. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}
+
+export class BalanceQueryDto {
+  /** Matches the ingredient name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
 
 export class CreatePantryItemDto {

@@ -4,6 +4,22 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Search, filter, and paging for recipes, the ingredient catalog, pantry, shopping lists, and product category overrides (2026-08-01)
+
+Recipes, the ingredient catalog, pantry lots and balances, shopping lists, and
+product category overrides all now support search/filter and page-number
+paging in the UI, backed by a shared `Paged<T>` response shape
+(`total`/`limit`/`offset`/`items`) on the API. Two previously-unbounded
+queries — pantry lots and, worst of all, product category overrides (no
+`where`, no `take` at all) — now page at the SQL level instead of returning
+every row. Pantry balances page in memory instead, since the aggregation
+needs the complete lot set per ingredient before it can compute a single row.
+The ingredient catalog's paging accounts for `preferOwn` collapsing
+global/household-forked duplicates *after* the query, which a plain
+`skip`/`take` would get wrong across page boundaries — pickers keep using the
+existing flat, unpaged endpoint so they're unaffected. Default page size is
+20 everywhere.
+
 ### Fixed — Household export crashing on a dangling shopping-list reference (2026-08-01)
 
 `ShoppingListItem.sourcePlannedMealId` has no real foreign key — nothing

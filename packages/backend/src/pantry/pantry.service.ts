@@ -10,6 +10,7 @@ import { TxKind, type UnitDef } from '@kitchen/shared-types';
 import { IngredientsService } from '../catalog/ingredients.service';
 import { UnitsService, toUnitDef } from '../catalog/units.service';
 import { ProductsService } from '../products/products.service';
+import { paged, resolveLimit } from '../common/pagination';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { planDeduction } from './deduction';
 import { balanceFor, type BalanceLot, shortfallAgainstPar } from './pantry-balance';
@@ -63,20 +64,49 @@ export class PantryService {
   // -- Lots ----------------------------------------------------------------
 
   async list(query: PantryQueryDto) {
+    const where = this.buildLotWhere(query);
+    const limit = resolveLimit(query.limit);
+    const offset = query.offset ?? 0;
+
+    const [total, lots] = await Promise.all([
+      this.db.pantryItem.count({ where }),
+      this.db.pantryItem.findMany({
+        where,
+        include: LOT_INCLUDE,
+        orderBy: [{ expiresOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    return paged(
+      lots.map((lot) => ({ ...lot, expiry: expiryStatus(lot.expiresOn) })),
+      total,
+      limit,
+      offset,
+    );
+  }
+
+  private buildLotWhere(query: {
+    locationId?: number;
+    ingredientId?: number;
+    expiringWithinDays?: number;
+    q?: string;
+  }): Record<string, unknown> {
     const where: Record<string, unknown> = {};
     if (query.locationId) where.locationId = query.locationId;
     if (query.ingredientId) where.ingredientId = query.ingredientId;
     if (query.expiringWithinDays !== undefined) {
       where.expiresOn = { not: null, lte: daysFromNow(query.expiringWithinDays) };
     }
-
-    const lots = await this.db.pantryItem.findMany({
-      where,
-      include: LOT_INCLUDE,
-      orderBy: [{ expiresOn: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
-    });
-
-    return lots.map((lot) => ({ ...lot, expiry: expiryStatus(lot.expiresOn) }));
+    const term = query.q?.trim();
+    if (term) {
+      where.OR = [
+        { ingredient: { name: { contains: term, mode: 'insensitive' } } },
+        { brand: { contains: term, mode: 'insensitive' } },
+      ];
+    }
+    return where;
   }
 
   async findOne(id: number) {
@@ -321,6 +351,29 @@ export class PantryService {
     });
 
     return results.sort((a, b) => a.ingredient.name.localeCompare(b.ingredient.name));
+  }
+
+  /**
+   * A paged, optionally name-filtered page of `balances()`.
+   *
+   * `balances()` itself cannot be paged at the SQL level: computing one row
+   * needs the complete lot group for that ingredient (unit conversion and
+   * totals depend on seeing every lot), so there is no `skip`/`take` that can
+   * be pushed into the query without either fetching every lot anyway or
+   * producing wrong per-ingredient totals from a partial lot set. This slices
+   * the already-computed in-memory result instead — fine at household scale,
+   * the same scale `balances()` itself is already sized for.
+   */
+  async balancesPage(query: { q?: string; limit?: number; offset?: number } = {}) {
+    const all = await this.balances();
+    const term = query.q?.trim().toLowerCase();
+    const filtered = term
+      ? all.filter((row) => row.ingredient.name.toLowerCase().includes(term))
+      : all;
+
+    const limit = resolveLimit(query.limit);
+    const offset = query.offset ?? 0;
+    return paged(filtered.slice(offset, offset + limit), filtered.length, limit, offset);
   }
 
   // -- Consumption ---------------------------------------------------------

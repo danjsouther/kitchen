@@ -52,6 +52,19 @@ export class IngredientsController {
     return this.ingredients.search(query);
   }
 
+  /**
+   * The paged catalog admin screen. A distinct route (rather than reshaping
+   * `GET /ingredients`) because pickers rely on that endpoint returning a
+   * flat array — see `IngredientsService.searchPaged` for why paging this
+   * query needs different logic entirely.
+   *
+   * Declared ahead of `:id` so 'page' isn't parsed as an ingredient id.
+   */
+  @Get('page')
+  searchPaged(@Query() query: IngredientQueryDto) {
+    return this.ingredients.searchPaged(query);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.ingredients.findOne(id);

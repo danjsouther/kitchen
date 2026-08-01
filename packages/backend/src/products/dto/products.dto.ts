@@ -14,6 +14,26 @@ export class ProductQueryDto {
   limit?: number;
 }
 
+export class ProductBindingQueryDto {
+  /** Matches the product's name/brand, or the ingredient it's bound to. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}
+
 /**
  * Sets this household's category override for a barcode.
  *

@@ -1,17 +1,19 @@
 import { Component,
-  computed,
   inject,
   signal,
 } from "@angular/core";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
+import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
+import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { BarcodeScanComponent } from "../shared/barcode-scan.component";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
+import { PagerComponent } from "../shared/pager.component";
 import { ProductPickerComponent } from "../shared/product-picker.component";
 import type {
   BarcodeLookup,
@@ -19,6 +21,8 @@ import type {
   Product,
   ProductBindingRow,
 } from "../core/models";
+
+const PAGE_LIMIT = 20;
 
 /**
  * This household's category overrides for products.
@@ -35,8 +39,11 @@ import type {
     IngredientPickerComponent,
     MatButtonModule,
     MatCardModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressBarModule,
+    PagerComponent,
     ProductPickerComponent,
   ],
   template: `
@@ -120,10 +127,25 @@ import type {
         <mat-progress-bar mode="indeterminate" />
       }
 
+      <mat-form-field appearance="outline" class="search">
+        <mat-label>Search overrides</mat-label>
+        <input
+          matInput
+          [value]="overridesQuery()"
+          (input)="onOverridesSearch($any($event.target).value)"
+          placeholder="Product, brand, or ingredient"
+        />
+        <mat-icon matSuffix>search</mat-icon>
+      </mat-form-field>
+
       @if (!loading() && overrides().length === 0) {
         <p class="empty muted">
-          No overrides yet. Most barcodes simply follow the usual category —
-          only pin one when you disagree.
+          @if (overridesQuery()) {
+            Nothing matches “{{ overridesQuery() }}”.
+          } @else {
+            No overrides yet. Most barcodes simply follow the usual category —
+            only pin one when you disagree.
+          }
         </p>
       }
 
@@ -158,6 +180,13 @@ import type {
           </mat-card-content>
         </mat-card>
       }
+
+      <app-pager
+        [total]="total()"
+        [limit]="limit"
+        [offset]="offset()"
+        (offsetChange)="onPageChange($event)"
+      />
     </div>
   `,
   styles: `
@@ -168,6 +197,7 @@ import type {
     img { width: 2.5rem; height: 2.5rem; object-fit: contain; }
     .ingredient { white-space: nowrap; }
     mat-card { margin-bottom: .5rem; }
+    .search { width: min(400px, 100%); margin-bottom: .5rem; }
   `,
 })
 export class ProductBindingsComponent {
@@ -175,15 +205,32 @@ export class ProductBindingsComponent {
   private readonly notify = inject(NotifyService);
 
   readonly overrides = signal<ProductBindingRow[]>([]);
+  readonly total = signal(0);
+  readonly limit = PAGE_LIMIT;
   readonly loading = signal(true);
   readonly busy = signal(false);
+
+  /** A filter, not form data. */
+  readonly overridesQuery = signal("");
+  readonly offset = signal(0);
+  private searchTimer?: ReturnType<typeof setTimeout>;
 
   readonly scan = signal<BarcodeLookup | null>(null);
   readonly lookingUp = signal(false);
 
-  readonly count = computed(() => this.overrides().length);
-
   constructor() {
+    this.load();
+  }
+
+  onOverridesSearch(value: string): void {
+    this.overridesQuery.set(value);
+    this.offset.set(0);
+    clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => this.load(), 250);
+  }
+
+  onPageChange(offset: number): void {
+    this.offset.set(offset);
     this.load();
   }
 
@@ -215,6 +262,7 @@ export class ProductBindingsComponent {
         this.busy.set(false);
         this.scan.set(result);
         this.notify.success(`Override set to ${item.name}.`);
+        this.offset.set(0);
         this.load();
       },
       error: (error: unknown) => {
@@ -237,6 +285,7 @@ export class ProductBindingsComponent {
             ? `Using usual category: ${result.effectiveIngredient.name}.`
             : "Override cleared.",
         );
+        this.offset.set(0);
         this.load();
       },
       error: (error: unknown) => {
@@ -262,6 +311,7 @@ export class ProductBindingsComponent {
         this.busy.set(false);
         this.notify.success(`Cleared override for ${row.product.name}.`);
         this.scan.set(null);
+        this.offset.set(0);
         this.load();
       },
       error: (error: unknown) => {
@@ -273,15 +323,18 @@ export class ProductBindingsComponent {
 
   private load(): void {
     this.loading.set(true);
-    this.api.productBindings().subscribe({
-      next: (rows) => {
-        this.overrides.set(rows);
-        this.loading.set(false);
-      },
-      error: (error: unknown) => {
-        this.loading.set(false);
-        this.notify.error(error, "Could not load your category overrides.");
-      },
-    });
+    this.api
+      .productBindings({ q: this.overridesQuery(), limit: this.limit, offset: this.offset() })
+      .subscribe({
+        next: (page) => {
+          this.overrides.set(page.items);
+          this.total.set(page.total);
+          this.loading.set(false);
+        },
+        error: (error: unknown) => {
+          this.loading.set(false);
+          this.notify.error(error, "Could not load your category overrides.");
+        },
+      });
   }
 }

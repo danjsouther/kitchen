@@ -2,8 +2,9 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 
 import { IngredientsService } from '../catalog/ingredients.service';
 import { normalizeBarcode } from '../off/barcode';
+import { paged, resolveLimit } from '../common/pagination';
 import { PrismaService, TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
-import type { ProductQueryDto } from './dto/products.dto';
+import type { ProductBindingQueryDto, ProductQueryDto } from './dto/products.dto';
 
 /** Search results are capped so a one-letter query cannot pull the whole mirror. */
 const DEFAULT_LIMIT = 20;
@@ -152,17 +153,39 @@ export class ProductsService {
   }
 
   /** This household's category overrides, for the admin list. */
-  listOverrides() {
-    return this.db.productBinding.findMany({
-      select: {
-        id: true,
-        productId: true,
-        ingredientId: true,
-        product: { select: { barcode: true, name: true, brands: true, imageSmallUrl: true } },
-        ingredient: { select: { id: true, name: true, slug: true } },
-      },
-      orderBy: { id: 'desc' },
-    });
+  async listOverrides(query: ProductBindingQueryDto = {}) {
+    const term = query.q?.trim();
+    const where = term
+      ? {
+          OR: [
+            { product: { name: { contains: term, mode: 'insensitive' as const } } },
+            { product: { brands: { contains: term, mode: 'insensitive' as const } } },
+            { ingredient: { name: { contains: term, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {};
+
+    const limit = resolveLimit(query.limit);
+    const offset = query.offset ?? 0;
+
+    const [total, rows] = await Promise.all([
+      this.db.productBinding.count({ where }),
+      this.db.productBinding.findMany({
+        where,
+        select: {
+          id: true,
+          productId: true,
+          ingredientId: true,
+          product: { select: { barcode: true, name: true, brands: true, imageSmallUrl: true } },
+          ingredient: { select: { id: true, name: true, slug: true } },
+        },
+        orderBy: { id: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    return paged(rows, total, limit, offset);
   }
 
   /**

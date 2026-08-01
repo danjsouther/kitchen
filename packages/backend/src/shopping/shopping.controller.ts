@@ -12,8 +12,6 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import type { ListStatus } from '@kitchen/shared-types';
-
 import { CurrentUser } from '../auth/decorators';
 import {
   AddListItemDto,
@@ -22,6 +20,7 @@ import {
   GenerateListDto,
   ReceiveDto,
   SetAislesDto,
+  ShoppingListQueryDto,
   UpdateListItemDto,
   UpdateStoreDto,
 } from './dto/shopping.dto';
@@ -69,8 +68,8 @@ export class ShoppingController {
   constructor(private readonly shopping: ShoppingService) {}
 
   @Get()
-  list(@Query('status') status?: ListStatus) {
-    return this.shopping.list(status);
+  list(@Query() query: ShoppingListQueryDto) {
+    return this.shopping.list(query);
   }
 
   /**

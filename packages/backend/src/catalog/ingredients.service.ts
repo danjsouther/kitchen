@@ -9,6 +9,7 @@ import {
 import { matchCandidates, slugify } from '@kitchen/shared-types';
 
 import { requireHouseholdId } from '../common/household-context';
+import { paged, resolveLimit } from '../common/pagination';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type {
   CreateIngredientDto,
@@ -58,6 +59,51 @@ export class IngredientsService {
     });
 
     return preferOwn(rows).slice(0, limit);
+  }
+
+  /**
+   * The paged catalog screen's version of `search`.
+   *
+   * `preferOwn` collapses global/household duplicate slugs *after* the DB
+   * query, so a plain `skip: offset` doesn't line up with the post-collapse
+   * page boundary — it could skip too many or too few visible rows depending
+   * on how many duplicate pairs land in the window. Instead:
+   *
+   * 1. Over-fetch everything from the start of the ordered set through this
+   *    page's likely end (`offset + limit * 2`, the same `* 2` slack `search`
+   *    uses to cover one collapse per row). This is O(offset) work — fine at
+   *    catalog scale (hundreds to low thousands of rows), not something that
+   *    would scale to an arbitrarily large catalog.
+   * 2. Collapse the *entire* over-fetched set, not just the current window,
+   *    so collapsing is stable regardless of where a duplicate pair sits
+   *    relative to the page boundary.
+   * 3. Slice the collapsed array to the page.
+   *
+   * `total` needs its own query: a raw `count({ where })` counts both the
+   * global and household copies of a customized ingredient, overcounting by
+   * one for every fork. A second, narrow-shape scan (id/slug/householdId
+   * only, no aliases) over every matching row, collapsed the same way, gives
+   * the true post-collapse count.
+   */
+  async searchPaged(query: IngredientQueryDto) {
+    const limit = resolveLimit(query.limit);
+    const offset = query.offset ?? 0;
+    const where = buildIngredientWhere(query);
+
+    const [collapsedTotal, rows] = await Promise.all([
+      this.db.ingredient
+        .findMany({ where, select: { id: true, slug: true, householdId: true } })
+        .then((all) => preferOwn(all).length),
+      this.db.ingredient.findMany({
+        where,
+        select: { ...LIST_SELECT, aliases: { select: { alias: true } } },
+        orderBy: { name: 'asc' },
+        take: offset + limit * 2,
+      }),
+    ]);
+
+    const collapsed = preferOwn(rows).slice(offset, offset + limit);
+    return paged(collapsed, collapsedTotal, limit, offset);
   }
 
   async findOne(id: number) {

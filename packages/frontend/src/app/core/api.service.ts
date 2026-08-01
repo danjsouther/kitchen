@@ -83,8 +83,14 @@ export class ApiService {
     return this.get<M.IngredientCategory[]>('/ingredient-categories');
   }
 
+  /** A flat, unpaged result for pickers/dropdowns — never returns a `Paged<T>`. */
   searchIngredients(q: string, limit = 20, categoryId?: number) {
     return this.get<M.Ingredient[]>('/ingredients', { q, limit, categoryId });
+  }
+
+  /** The paged catalog admin screen. See backend `IngredientsService.searchPaged`. */
+  ingredientsPage(query: { q?: string; categoryId?: number; limit?: number; offset?: number } = {}) {
+    return this.get<M.Paged<M.Ingredient>>('/ingredients/page', query);
   }
 
   ingredient(id: number) {
@@ -117,8 +123,8 @@ export class ApiService {
     return this.get<M.Product[]>('/products', { q, limit });
   }
 
-  productBindings() {
-    return this.get<M.ProductBindingRow[]>('/products/bindings');
+  productBindings(query: { q?: string; limit?: number; offset?: number } = {}) {
+    return this.get<M.Paged<M.ProductBindingRow>>('/products/bindings', query);
   }
 
   /** Pins this household's category override for a barcode. */
@@ -136,7 +142,9 @@ export class ApiService {
 
   // -- Recipes -------------------------------------------------------------
 
-  recipes(query: { q?: string; tag?: string; status?: string; limit?: number } = {}) {
+  recipes(
+    query: { q?: string; tag?: string; status?: string; limit?: number; offset?: number } = {},
+  ) {
     return this.get<M.Paged<M.RecipeSummary>>('/recipes', query);
   }
 
@@ -170,12 +178,20 @@ export class ApiService {
 
   // -- Pantry --------------------------------------------------------------
 
-  pantry(query: { locationId?: number; expiringWithinDays?: number } = {}) {
-    return this.get<M.PantryLot[]>('/pantry', query);
+  pantry(
+    query: {
+      locationId?: number;
+      expiringWithinDays?: number;
+      q?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) {
+    return this.get<M.Paged<M.PantryLot>>('/pantry', query);
   }
 
-  balances() {
-    return this.get<M.Balance[]>('/pantry/balances');
+  balances(query: { q?: string; limit?: number; offset?: number } = {}) {
+    return this.get<M.Paged<M.Balance>>('/pantry/balances', query);
   }
 
   addPantryItem(body: M.PantryItemWrite & { ingredientId: number }) {
@@ -293,8 +309,10 @@ export class ApiService {
     return this.put<M.Store>(`/stores/${id}/aisles`, { aisles });
   }
 
-  shoppingLists() {
-    return this.get<M.ShoppingListSummary[]>('/shopping-lists');
+  shoppingLists(
+    query: { status?: string; q?: string; limit?: number; offset?: number } = {},
+  ) {
+    return this.get<M.Paged<M.ShoppingListSummary>>('/shopping-lists', query);
   }
 
   shoppingList(id: number) {

@@ -60,6 +60,13 @@ export class IngredientQueryDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  /** Only read by the paged catalog screen (`searchPaged`); `search` ignores it. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
 
 export class CreateIngredientDto {

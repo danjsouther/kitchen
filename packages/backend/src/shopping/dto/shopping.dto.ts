@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsISO8601,
   IsNumberString,
@@ -14,8 +15,33 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { ListStatus } from '@kitchen/shared-types';
 
 const DATE_ONLY = { strict: true, strictSeparator: true };
+
+export class ShoppingListQueryDto {
+  @IsOptional()
+  @IsIn(Object.values(ListStatus))
+  status?: ListStatus;
+
+  /** Matches the list's name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}
 
 export class CreateStoreDto {
   @IsString()
