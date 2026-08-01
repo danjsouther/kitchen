@@ -1,6 +1,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
+import { json, urlencoded } from 'express';
 
 import { AppModule } from './app.module';
 import { parseMasterKey } from './common/secret-crypto.util';
@@ -8,13 +9,18 @@ import { parseMasterKey } from './common/secret-crypto.util';
 const logger = new Logger('Bootstrap');
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // bodyParser: false, then mounted by hand below with a raised size limit —
+  // Express's default (~100kb) is fine for every other endpoint but far too
+  // small for a whole-household data import.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // Validate the secrets-encryption key at startup rather than the first time a
   // household saves an API key — a malformed key should stop a deploy, not
   // surface as a confusing error to a user hours later.
   parseMasterKey(process.env.AI_ENCRYPTION_KEY);
 
+  app.use(json({ limit: '25mb' }));
+  app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.use(cookieParser());
 
   app.enableCors({

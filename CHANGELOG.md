@@ -4,6 +4,22 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Whole-household data export and restore (2026-08-01)
+
+Added `GET /household-data/export` and `POST /household-data/import`
+(admin-only, new "Your data" settings page) so a household can download
+everything it owns — recipes, pantry, planner and shopping/receive history,
+price observations, its own ingredient and unit forks — as one JSON file, and
+restore it later. References to the global catalog (units, ingredients,
+categories, OFF products) are encoded by natural key so the file is portable
+across installs; references to household-owned rows use a synthetic key
+assigned at export time, since the original database ids won't exist in the
+target household. Import only succeeds against a household with no
+conflicting data — a same-slug recipe or same-name store aborts the whole
+restore inside one transaction, naming the exact collision, with nothing
+partially applied. The Anthropic API key and user accounts are never
+exported; the key must be re-entered after a restore.
+
 ### Added — Bulk OFF product-to-ingredient matcher (2026-07-31)
 
 Added `npm run off:match`, a standalone script that matches every product in

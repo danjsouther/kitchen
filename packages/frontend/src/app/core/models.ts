@@ -496,6 +496,25 @@ export interface ParseResult {
   summary: { total: number; resolved: number; needsReview: number };
 }
 
+/** Row counts returned after a successful `POST /household-data/import`. */
+export interface ImportSummary {
+  storageLocations: number;
+  units: number;
+  ingredients: number;
+  tags: number;
+  recipes: number;
+  stores: number;
+  pantryItems: number;
+  pantryPars: number;
+  plannedMeals: number;
+  cookSessions: number;
+  shoppingLists: number;
+  receiveSessions: number;
+  pantryTransactions: number;
+  priceObservations: number;
+  productBindings: number;
+}
+
 export interface AiConfig {
   configured: boolean;
   enabled: boolean;

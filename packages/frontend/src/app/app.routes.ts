@@ -112,6 +112,12 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/ai-settings.component').then((m) => m.AiSettingsComponent),
   },
+  {
+    path: 'settings/data',
+    canActivate: [adminGuard],
+    loadComponent: () =>
+      import('./settings/data-settings.component').then((m) => m.DataSettingsComponent),
+  },
 
   { path: '**', redirectTo: 'recipes' },
 ];

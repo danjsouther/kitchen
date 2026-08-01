@@ -10,6 +10,7 @@ import { HealthController } from './health/health.controller';
 import { DecimalSerializerInterceptor } from './common/decimal-serializer.interceptor';
 import { HouseholdContextMiddleware } from './common/household-context.middleware';
 import { findRepoEnv } from './common/repo-env';
+import { HouseholdDataModule } from './household-data/household-data.module';
 import { HouseholdsModule } from './households/households.module';
 import { PantryModule } from './pantry/pantry.module';
 import { ParserModule } from './parser/parser.module';
@@ -38,6 +39,7 @@ import { SuggestionsModule } from './suggestions/suggestions.module';
     SuggestionsModule,
     ShoppingModule,
     ProductsModule,
+    HouseholdDataModule,
   ],
   controllers: [HealthController],
   providers: [

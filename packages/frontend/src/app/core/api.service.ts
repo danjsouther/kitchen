@@ -46,6 +46,10 @@ export class ApiService {
     return this.http.delete<T>(`${this.base}${path}`, { withCredentials: true, body });
   }
 
+  private getBlob(path: string): Observable<Blob> {
+    return this.http.get(`${this.base}${path}`, { responseType: 'blob', withCredentials: true });
+  }
+
   // -- Auth ----------------------------------------------------------------
 
   register(body: {
@@ -327,6 +331,22 @@ export class ApiService {
       priced: number[];
       skipped: Array<{ itemId: number; reason: string }>;
     }>(`/shopping-lists/${listId}/receive`, body);
+  }
+
+  // -- Household data (export / import) -------------------------------------
+
+  /** The whole household as a downloadable JSON blob. */
+  exportHouseholdData() {
+    return this.getBlob('/household-data/export');
+  }
+
+  /**
+   * Restores a previously exported file into the *current* household. Only
+   * succeeds against a household with no conflicting data — it's a restore
+   * into a fresh household, not a merge.
+   */
+  importHouseholdData(body: unknown) {
+    return this.post<M.ImportSummary>('/household-data/import', body);
   }
 
   unreceiveList(listId: number) {

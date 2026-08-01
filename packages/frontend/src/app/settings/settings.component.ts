@@ -142,6 +142,26 @@ import type { StorageLocation, Store } from "../core/models";
 
         <mat-card>
           <mat-card-content>
+            <h2>Your data</h2>
+            <p class="muted small">
+              Download everything this household owns, or restore it from a
+              previous download.
+            </p>
+            @if (auth.isAdmin()) {
+              <a mat-stroked-button routerLink="/settings/data">
+                <mat-icon>download</mat-icon>
+                Export / restore
+              </a>
+            } @else {
+              <p class="muted small">
+                Only a household administrator can do this.
+              </p>
+            }
+          </mat-card-content>
+        </mat-card>
+
+        <mat-card>
+          <mat-card-content>
             <h2>You</h2>
             @if (auth.user(); as user) {
               <p>
