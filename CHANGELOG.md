@@ -4,6 +4,16 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Vendor the git and playwright-skill Claude Code skills (2026-07-31)
+
+Checked in `.claude/skills/git/` (this repo's commit/branch/changelog rules)
+and `.claude/skills/playwright-skill/` (browser automation for manual UI
+verification) so they travel with the repo instead of living only on one
+machine. `playwright-skill`'s `node_modules/` is npm-installed on first use and
+stays out of git (`.claude/skills/*/node_modules/` added to `.gitignore`). Also
+added `.agents/plan.md` (the original build spec) and
+`.cursor/plans/open_food_facts_products_68668fa1.plan.md` for reference.
+
 ### Added — GIN trigram indexes on product name/brand (2026-07-31)
 
 `product_name_trgm_idx` and `product_brands_trgm_idx` keep OFF-catalog product

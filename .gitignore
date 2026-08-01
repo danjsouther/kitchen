@@ -24,3 +24,6 @@ Thumbs.db
 
 # Claude Code local (machine-specific) settings
 .claude/settings.local.json
+
+# Vendored skill dependencies (npm-installed on first use)
+.claude/skills/*/node_modules/
