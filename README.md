@@ -305,7 +305,7 @@ The backend runs on **3001** and the Angular dev server on **4201**, which proxi
 
 ## How tenancy is enforced
 
-The tables and how they relate are mapped in [`ERD.md`](ERD.md), which is also
+The tables and how they relate are mapped in [`docs/ERD.md`](docs/ERD.md), which is also
 where the three-way split below is set out per table.
 
 Guards decide *who you are*; they say nothing about *whose data you are touching*. One
@@ -650,7 +650,7 @@ Under construction. Built so far:
       only set
 - [x] End-to-end smoke run — `npm run smoke` walks paste → plan → shop → cook → undo
       against the running API, 51 checks
-- [x] [`ERD.md`](ERD.md) — the tables, the relationships, and which nullable columns are
+- [x] [`docs/ERD.md`](docs/ERD.md) — the tables, the relationships, and which nullable columns are
       nullable on purpose
 - [x] Open Food Facts products — offline monthly mirror, barcode scan on pantry intake,
       consensus default + household category override, `productId` through shopping

@@ -4,6 +4,13 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — Move ERD and TODO under docs/ (2026-07-31)
+
+Moved `ERD.md` and `TODO.md` into `docs/`, added `docs/README.md` as an index,
+and added `docs/SIGNAL-FORMS.md` covering how Signal Forms are written here.
+Trimmed `CLAUDE.md` to point at the vendored Angular skill and
+`docs/SIGNAL-FORMS.md` instead of duplicating their content.
+
 ### Changed — Frontend OnPush + zoneless (2026-07-31)
 
 Dropped `ChangeDetectionStrategy.Eager` from every component (Angular 22’s
