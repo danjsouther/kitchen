@@ -16,6 +16,7 @@
     "seed": "tsx prisma/seed/index.ts",
     "off:download": "tsx src/off/download-off.cli.ts",
     "off:import": "tsx src/off/import-off.cli.ts",
+    "off:match": "tsx src/off/match-off.cli.ts",
     "verify:tenancy": "tsx scripts/verify-tenancy.ts",
     "smoke": "tsx scripts/smoke.ts"
   },

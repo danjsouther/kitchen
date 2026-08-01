@@ -4,6 +4,22 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Bulk OFF product-to-ingredient matcher (2026-07-31)
+
+Added `npm run off:match`, a standalone script that matches every product in
+the Open Food Facts mirror against the global ingredient catalog (exact slug,
+alias, singularized slug, then trigram similarity above a configurable
+threshold) and writes the results as `ProductBinding` rows under a dedicated
+"OFF Auto-Match" household. That household's votes surface through the
+existing ranked-consensus mechanism like any other household's, so a barcode
+nobody has scanned yet still gets a sensible default category — a real
+household's own override or vote still wins. Supports `--dry-run` and
+`--sample <n>` for reviewing matches before committing to a write, and
+`--fuzzy-threshold`/`--limit` for tuning and trial runs. A full run against the
+925,530-product mirror completes in about ten minutes with flat memory usage
+(no per-row Prisma calls — batched raw SQL for both the trigram lookup and the
+writes, following the same pattern as `off:import`).
+
 ### Changed — Rename the app to Kitchen (2026-08-01)
 
 Renamed the app from "Recipes" to "Kitchen" — page title, nav bar brand, root
