@@ -10,6 +10,8 @@
  * thin wrapper that calls them.
  */
 
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
+
 import {
   getHouseholdContext,
   isUnscoped,
@@ -40,9 +42,9 @@ export const TENANT_SCOPED_MODELS = new Set([
 ]);
 
 /**
- * Catalog models with a *nullable* `householdId`: null rows are the seeded global
- * catalog, non-null rows are a household's own additions. Reads see both; writes
- * create household-private rows.
+ * Catalog models where `householdId` may be `SYSTEM_HOUSEHOLD_ID`: those rows
+ * are the seeded global catalog, any other value is a household's own
+ * addition. Reads see both; writes create household-private rows.
  */
 export const SHARED_CATALOG_MODELS = new Set(['Unit', 'Ingredient']);
 
@@ -131,7 +133,7 @@ export function scopeTenantWhere(where: unknown, householdId: number): Args {
  */
 export function scopeCatalogWhere(where: unknown, householdId: number): Args {
   const visibility = {
-    OR: [{ householdId: null }, { householdId }],
+    OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId }],
   };
 
   const original = (where as Args) ?? {};
@@ -172,9 +174,9 @@ export function scopeArgs(
 
   // Catalog *writes* get the strict tenant filter, not the visibility rule.
   // Reads see the global rows plus the household's own; if writes used the same
-  // rule, `ingredient.update({ where: { id } })` on a seeded global row would
+  // rule, `ingredient.update({ where: { id } })` on a system-owned row would
   // succeed and one household could rewrite the shared catalog for everyone.
-  // Editing global rows is the seeder's job, through the unscoped client.
+  // Editing system-owned rows is the seeder's job, through the unscoped client.
   if (WHERE_WRITE_OPERATIONS.has(operation)) {
     scoped.where = scopeTenantWhere(args.where, householdId);
   }

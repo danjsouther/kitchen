@@ -24,6 +24,7 @@ import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatSelectModule } from "@angular/material/select";
 import { MatTooltipModule } from "@angular/material/tooltip";
+import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
@@ -149,7 +150,7 @@ const PAGE_LIMIT = 20;
             <div class="row head" (click)="toggle(item)">
               <div class="grow">
                 <strong>{{ item.name }}</strong>
-                @if (item.householdId === null) {
+                @if (item.householdId === SYSTEM_HOUSEHOLD_ID) {
                   <span
                     class="pill shared"
                     matTooltip="From the shared catalog. Editing it makes a private copy for your household first."
@@ -165,7 +166,7 @@ const PAGE_LIMIT = 20;
 
             @if (editingId() === item.id) {
               <div class="editor-body">
-                @if (item.householdId === null) {
+                @if (item.householdId === SYSTEM_HOUSEHOLD_ID) {
                   <p class="notice small">
                     <mat-icon class="tiny">info</mat-icon>
                     Saving will create your household's own copy of this ingredient. The
@@ -245,7 +246,7 @@ const PAGE_LIMIT = 20;
                   <div class="actions">
                     <button mat-flat-button type="submit" [disabled]="busy()">
                       <mat-icon>save</mat-icon>
-                      {{ item.householdId === null ? "Save a private copy" : "Save" }}
+                      {{ item.householdId === SYSTEM_HOUSEHOLD_ID ? "Save a private copy" : "Save" }}
                     </button>
                     <button mat-button type="button" (click)="editingId.set(null)">Cancel</button>
                   </div>
@@ -306,6 +307,9 @@ const PAGE_LIMIT = 20;
 export class IngredientsComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+
+  /** Exposed for the template's shared-catalog checks. */
+  readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
 
   readonly results = signal<Ingredient[]>([]);
   readonly total = signal(0);
@@ -532,12 +536,12 @@ export class IngredientsComponent {
     // A shared ingredient is forked first: the PATCH must land on a row this
     // household owns, or the tenancy layer will (correctly) refuse it.
     const target =
-      item.householdId === null
+      item.householdId === SYSTEM_HOUSEHOLD_ID
         ? this.api.customizeIngredient(item.id)
         : this.api.ingredient(item.id);
 
     target.subscribe({
-      next: (owned) => this.applyUpdate(owned.id, item.householdId === null),
+      next: (owned) => this.applyUpdate(owned.id, item.householdId === SYSTEM_HOUSEHOLD_ID),
       error: (error: unknown) => {
         this.busy.set(false);
         this.notify.error(error, "Could not prepare that ingredient for editing.");

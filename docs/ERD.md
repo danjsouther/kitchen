@@ -20,14 +20,18 @@ deciding which group it belongs to and saying so there.
 |---|---|---|---|
 | **Household-scoped** | `User`, `HouseholdAiConfig`, `Recipe`, `Tag`, `StorageLocation`, `PantryItem`, `PantryPar`, `PantryTransaction`, `PlannedMeal`, `CookSession`, `Store`, `ShoppingList`, `ReceiveSession`, `PriceObservation` | required | Every read and write is filtered to the caller's household; a `householdId` supplied by the caller is overwritten, not trusted |
 | **Household-scoped** (cont.) | `ProductBinding` | required | as above |
-| **Shared catalog** | `Unit`, `Ingredient` | **nullable** | Reads see global rows (`NULL`) *plus* the household's own; writes only ever touch the household's own |
+| **Shared catalog** | `Unit`, `Ingredient` | required, may be `SYSTEM_HOUSEHOLD_ID` | Reads see global rows (`householdId = SYSTEM_HOUSEHOLD_ID`, i.e. `0`) *plus* the household's own; writes only ever touch the household's own |
 | **Parent-scoped** | `Household`, `IngredientCategory`, `IngredientAlias`, `RecipeIngredient`, `RecipeStep`, `RecipeTag`, `StoreAisle`, `ShoppingListItem`, `Product` | none | Nothing to filter on. Services must reach these through a scoped parent rather than by id |
 
-That nullable `householdId` on the catalog is the load-bearing trick. It is what
+That reserved `SYSTEM_HOUSEHOLD_ID` (`0`) on the catalog is the load-bearing
+trick — a real `Household` row named "System", exported from
+`@kitchen/shared-types` so backend and frontend agree on the value. It is what
 lets one seeded ingredient list serve every household while still letting a
 household correct a density for itself — and it is why editing a shared
 ingredient forks a private copy (`POST /ingredients/:id/customize`) instead of
-patching in place.
+patching in place. The same household also owns the OFF auto-match product
+bindings (see "Products" below), so there is exactly one convention for "this
+row belongs to everyone," not two.
 
 A query that reaches a scoped model with no household context **throws** rather
 than running unfiltered. Crossing households needs an explicit `runUnscoped()`,
@@ -85,18 +89,18 @@ erDiagram
   IngredientCategory ||--o{ Ingredient : "groups"
   Unit |o--o{ Ingredient : "usual unit"
   Ingredient ||--o{ IngredientAlias : "also known as"
-  Household |o--o{ Ingredient : "owns (null = seeded)"
-  Household |o--o{ Unit : "owns (null = seeded)"
+  Household ||--o{ Ingredient : "owns (0 = System = seeded)"
+  Household ||--o{ Unit : "owns (0 = System = seeded)"
 
   Unit {
     int id PK
-    int householdId FK "nullable — null is global"
+    int householdId FK "0 (System) is global"
     enum kind "MASS | VOLUME | COUNT"
     decimal toBaseFactor "into gram / millilitre / each"
   }
   Ingredient {
     int id PK
-    int householdId FK "nullable — null is global"
+    int householdId FK "0 (System) is global"
     string slug "unique per household"
     decimal gramsPerMl "nullable — bridges VOLUME to MASS"
     decimal gramsPerPiece "nullable — bridges COUNT to MASS"
@@ -154,8 +158,8 @@ erDiagram
 `Product` is a mirror of Open Food Facts, and it is the only table in the schema
 that is global **without** being shared catalog. The distinction matters:
 
-- `Unit` and `Ingredient` have a **nullable** `householdId`, so a household can
-  fork a row and correct it for itself.
+- `Unit` and `Ingredient` may carry `householdId = SYSTEM_HOUSEHOLD_ID`, so a
+  household can fork a row and correct it for itself.
 - `Product` has **no `householdId` column at all**, so there is nothing to fork
   *to*. It is written by `npm run off:import` and by no endpoint whatsoever.
 
@@ -165,8 +169,12 @@ barcode is good for, which is that everybody scanning that pack gets the same
 answer. Correcting OFF's data is a contribution to OFF, not a local edit.
 
 The **default** ingredient category for a barcode is live ranked consensus: count
-of `ProductBinding` rows per global ingredient (`ingredient.householdId IS NULL`),
-highest count wins. Household-created ingredients never enter that ranking.
+of `ProductBinding` rows per global ingredient (`ingredient.householdId =
+SYSTEM_HOUSEHOLD_ID`), highest count wins. Household-created ingredients never
+enter that ranking. The system household's own auto-matched bindings
+(`npm run off:match`) are simply one more vote in that tally — the starting
+default for a barcode nobody has voted on, out-tallied by any real household
+that has.
 
 What a household owns is an optional **override** (`ProductBinding`): when present
 it wins over consensus; when absent (or deleted) the household follows the live
@@ -415,7 +423,6 @@ still deletes your data.
 | Deleting | Nulls |
 |---|---|
 | `Product` | `PantryItem.productId`, `ShoppingListItem.productId`, `PriceObservation.productId` |
-| `Household` | `Ingredient.householdId`, `Unit.householdId` — **see the warning below** |
 | `Recipe` | `PlannedMeal.recipeId` |
 | `PlannedMeal` | `CookSession.plannedMealId` |
 | `CookSession` | `PantryTransaction.cookSessionId` |
@@ -431,19 +438,20 @@ discarded lot's history is still true, and a cook session detached from a
 removed planned meal still moved real food.
 
 **Restrict** — everything else, including every household-scoped table's
-`householdId`, and `CookSession.recipeId`. So a recipe that has actually been
-cooked cannot be deleted, which is why recipes archive (`archivedOn`) instead:
-the pantry history it caused is still true. A `Store` still referenced by a list
-or a price refuses deletion for the same reason, and says so.
+`householdId` (`Unit.householdId` and `Ingredient.householdId` included — both
+carry a real, required FK to `household` now, so this covers them too), and
+`CookSession.recipeId`. So a recipe that has actually been cooked cannot be
+deleted, which is why recipes archive (`archivedOn`) instead: the pantry
+history it caused is still true. A `Store` still referenced by a list or a
+price refuses deletion for the same reason, and says so.
 
-> **Deleting a `Household` promotes its private catalog rows to global.**
-> `Ingredient.householdId` and `Unit.householdId` are nullable so that `NULL`
-> can mean "seeded, shared by everyone" — and `SET NULL` is Prisma's default for
-> an optional relation. Put together, deleting a household hands its private
-> ingredients to every other household instead of removing them. No endpoint
-> deletes a household, so this is only reachable from a script or a console;
-> both cleanup paths in this repo delete household-owned catalog rows explicitly
-> first, and anything else that removes a household must do the same.
+> **Deleting a `Household` cannot orphan the catalog.** With `householdId`
+> restricted rather than nullable, deleting a household that still owns
+> `Unit`/`Ingredient` rows fails outright instead of silently promoting them to
+> global — the failure mode a nullable column with `SET NULL` used to invite.
+> `SYSTEM_HOUSEHOLD_ID` (`0`, the "System" household) is never deleted; it is
+> upserted once by the seed and every cleanup script in this repo is careful to
+> exclude it.
 
 ## Indexes worth knowing about
 

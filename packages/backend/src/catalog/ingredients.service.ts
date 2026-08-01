@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { matchCandidates, slugify } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, matchCandidates, slugify } from '@kitchen/shared-types';
 
 import { requireHouseholdId } from '../common/household-context';
 import { paged, resolveLimit } from '../common/pagination';
@@ -164,7 +164,7 @@ export class IngredientsService {
     });
     if (!existing) throw new NotFoundException(`No ingredient with id ${id}.`);
 
-    if (existing.householdId === null) {
+    if (existing.householdId === SYSTEM_HOUSEHOLD_ID) {
       throw new ForbiddenException(
         `"${existing.name}" is part of the shared catalog and cannot be edited ` +
           'directly. Make your own copy of it first, then edit that.',
@@ -216,7 +216,7 @@ export class IngredientsService {
     });
     if (!source) throw new NotFoundException(`No ingredient with id ${id}.`);
 
-    if (source.householdId !== null) {
+    if (source.householdId !== SYSTEM_HOUSEHOLD_ID) {
       throw new ConflictException(
         `"${source.name}" already belongs to your household — edit it directly.`,
       );
@@ -347,7 +347,7 @@ export function buildIngredientWhere(
 
 export interface IngredientRow {
   id: number;
-  householdId: number | null;
+  householdId: number;
   name: string;
   slug: string;
   gramsPerMl: unknown;
@@ -361,11 +361,13 @@ export interface IngredientRow {
  * the seeded one and theirs. Showing both in a picker is worse than useless —
  * they look identical and only one carries the corrected density.
  */
-export function preferOwn<T extends { slug: string; householdId: number | null }>(
+export function preferOwn<T extends { slug: string; householdId: number }>(
   rows: readonly T[],
 ): T[] {
   const owned = new Set(
-    rows.filter((row) => row.householdId !== null).map((row) => row.slug),
+    rows.filter((row) => row.householdId !== SYSTEM_HOUSEHOLD_ID).map((row) => row.slug),
   );
-  return rows.filter((row) => row.householdId !== null || !owned.has(row.slug));
+  return rows.filter(
+    (row) => row.householdId !== SYSTEM_HOUSEHOLD_ID || !owned.has(row.slug),
+  );
 }

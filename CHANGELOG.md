@@ -4,6 +4,23 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — Replaced nullable `householdId` on the catalog with a reserved system household (2026-08-01)
+
+`Unit.householdId` and `Ingredient.householdId` were nullable, with `NULL`
+meaning "seeded/global" — which meant Postgres's NULL-is-distinct behavior
+required a second migration of partial unique indexes just to stop duplicate
+global rows, and every consumer carried a `number | null`. Both columns are
+now a required FK to a single reserved `Household` row, id `0`
+(`SYSTEM_HOUSEHOLD_ID`, exported from `@kitchen/shared-types`), and the
+partial indexes are gone — the ordinary composite unique constraints cover
+global rows the same way they cover a household's own. The separately-named
+`'OFF Auto-Match'` household (see the entry below) is folded into the same
+reserved household, so there is now one convention for "belongs to everyone,"
+not two. A hand-written migration backfills existing data in place: global
+catalog rows move from `NULL` to `0`, the auto-match household's product
+bindings are re-owned by household `0`, and the now-redundant partial indexes
+are dropped.
+
 ### Added — Search, filter, and paging for recipes, the ingredient catalog, pantry, shopping lists, and product category overrides (2026-08-01)
 
 Recipes, the ingredient catalog, pantry lots and balances, shopping lists, and

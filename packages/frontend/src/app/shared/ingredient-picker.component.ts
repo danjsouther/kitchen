@@ -11,6 +11,7 @@ import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { Subject, debounceTime, distinctUntilChanged, switchMap } from "rxjs";
+import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 
 import { ApiService } from "../core/api.service";
 import type { Ingredient } from "../core/models";
@@ -68,7 +69,7 @@ import type { Ingredient } from "../core/models";
         @for (item of results(); track item.id) {
           <mat-option [value]="item">
             {{ item.name }}
-            @if (item.householdId !== null) {
+            @if (item.householdId !== SYSTEM_HOUSEHOLD_ID) {
               <span class="muted small">· yours</span>
             }
           </mat-option>
@@ -122,6 +123,9 @@ export class IngredientPickerComponent {
 
   /** Sentinel for the "create this" row, so it is distinguishable from a real hit. */
   readonly CREATE = "__create__" as const;
+
+  /** Exposed for the template's "· yours" badge. */
+  readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
 
   /** What is in the box. Always a string — never an Ingredient. */
   readonly text = linkedSignal(() => this.initialText());

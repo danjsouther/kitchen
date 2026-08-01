@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
+
 import { buildUnitTokenMap, resolveUnitToken, type MatchableUnit } from './off-units';
 
 /**
@@ -18,7 +20,7 @@ function seededUnits(): MatchableUnit[] {
     plural: string;
     abbrev: string | null;
   }>;
-  return rows.map((row, index) => ({ id: index + 1, householdId: null, ...row }));
+  return rows.map((row, index) => ({ id: index + 1, householdId: SYSTEM_HOUSEHOLD_ID, ...row }));
 }
 
 describe('buildUnitTokenMap', () => {

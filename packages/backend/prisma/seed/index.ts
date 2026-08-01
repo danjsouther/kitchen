@@ -1,22 +1,23 @@
 /**
- * Seeds the global catalog: units, ingredient categories, and the ingredient
- * catalog with the density and piece-weight data the conversion engine needs.
+ * Seeds the reserved system household, then the global catalog it owns: units,
+ * ingredient categories, and the ingredient catalog with the density and
+ * piece-weight data the conversion engine needs.
  *
  * Idempotent — safe to re-run. Existing rows are updated in place rather than
  * duplicated, so editing the JSON and re-running is the normal workflow.
  *
- * Global rows are those with householdId = null. Note that Postgres treats NULLs
- * as distinct in a unique index, so `@@unique([householdId, name])` does NOT stop
- * duplicate global rows on its own — migration `add_global_catalog_unique_indexes`
- * adds partial unique indexes for that, and this loader matches on
- * `householdId: null` explicitly rather than relying on upsert.
+ * Global rows carry householdId = SYSTEM_HOUSEHOLD_ID. That column is a real,
+ * required value now, so the composite unique constraints
+ * (`@@unique([householdId, name])`, `@@unique([householdId, slug])`) constrain
+ * global rows the same way they constrain a household's own — no partial index
+ * workaround needed, and this loader can use a plain `upsert`.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { slugify } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
 import { config as loadEnv } from 'dotenv';
 
 import { PrismaClient } from '../../generated/prisma/client';
@@ -94,18 +95,22 @@ async function main(): Promise<void> {
   try {
     const counts = { units: 0, categories: 0, ingredients: 0, aliases: 0 };
 
+    // ---- System household ---------------------------------------------------
+    // Every catalog row below has a required FK to household(id), so this must
+    // exist before any of them are written.
+    await prisma.household.upsert({
+      where: { id: SYSTEM_HOUSEHOLD_ID },
+      update: {},
+      create: { id: SYSTEM_HOUSEHOLD_ID, name: 'System' },
+    });
+
     // ---- Units -------------------------------------------------------------
     for (const unit of readSeed<UnitSeed>('units.json')) {
-      const existing = await prisma.unit.findFirst({
-        where: { householdId: null, name: unit.name },
-        select: { id: true },
+      await prisma.unit.upsert({
+        where: { householdId_name: { householdId: SYSTEM_HOUSEHOLD_ID, name: unit.name } },
+        update: unit,
+        create: { ...unit, householdId: SYSTEM_HOUSEHOLD_ID },
       });
-
-      if (existing) {
-        await prisma.unit.update({ where: { id: existing.id }, data: unit });
-      } else {
-        await prisma.unit.create({ data: { ...unit, householdId: null } });
-      }
       counts.units += 1;
     }
 
@@ -128,7 +133,7 @@ async function main(): Promise<void> {
     const unitIds = new Map(
       (
         await prisma.unit.findMany({
-          where: { householdId: null },
+          where: { householdId: SYSTEM_HOUSEHOLD_ID },
           select: { id: true, name: true },
         })
       ).map((row) => [row.name, row.id]),
@@ -166,14 +171,11 @@ async function main(): Promise<void> {
         note: ingredient.note ?? null,
       };
 
-      const existing = await prisma.ingredient.findFirst({
-        where: { householdId: null, slug },
-        select: { id: true },
+      const saved = await prisma.ingredient.upsert({
+        where: { householdId_slug: { householdId: SYSTEM_HOUSEHOLD_ID, slug } },
+        update: data,
+        create: { ...data, householdId: SYSTEM_HOUSEHOLD_ID },
       });
-
-      const saved = existing
-        ? await prisma.ingredient.update({ where: { id: existing.id }, data })
-        : await prisma.ingredient.create({ data: { ...data, householdId: null } });
       counts.ingredients += 1;
 
       // ---- Aliases ---------------------------------------------------------

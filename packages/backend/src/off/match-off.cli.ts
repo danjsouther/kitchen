@@ -1,17 +1,17 @@
 /**
  * Bulk-matches the Open Food Facts mirror (`product`) to the global ingredient
- * catalog, writing the matches as `product_binding` rows under one designated
- * "system" household.
+ * catalog, writing the matches as `product_binding` rows under the reserved
+ * system household (`SYSTEM_HOUSEHOLD_ID`, id 0).
  *
  *   npm run off:match -w packages/backend
  *   npm run off:match -w packages/backend -- --dry-run
  *   npm run off:match -w packages/backend -- --limit 1000 --fuzzy-threshold 0.65
  *
- * **Why a system household, not "no household".** `product_binding` is
+ * **Why the system household, not "no household".** `product_binding` is
  * tenant-scoped (`@@unique([householdId, productId])`), and `rankedConsensus`
  * in `ProductsService` counts every household's votes for a barcode with no
  * special-casing — it does not exclude any particular household id. Writing
- * under one designated household therefore does exactly what a "starting
+ * under the reserved household therefore does exactly what a "starting
  * default" needs to do: it becomes the visible consensus for a barcode nobody
  * has voted on yet, and a real household's own override or vote still wins or
  * out-tallies it. This is deliberate, not an oversight — see the plan this
@@ -25,8 +25,8 @@
  * **Matching**, see `off-match.ts`: exact slug → alias → singularized slug
  * (always written) → trigram similarity (written only above
  * `--fuzzy-threshold`, default 0.6). Only global ingredients
- * (`householdId IS NULL`) are candidates, matching what `rankedConsensus`
- * ranks.
+ * (`householdId = SYSTEM_HOUSEHOLD_ID`) are candidates, matching what
+ * `rankedConsensus` ranks.
  *
  * **Bare, unscoped Prisma client**, same reasoning as `import-off.cli.ts`:
  * this runs outside a request, writes rows that belong to the system
@@ -44,6 +44,7 @@ import { existsSync } from 'node:fs';
 
 import { PrismaPg } from '@prisma/adapter-pg';
 import { config as loadEnv } from 'dotenv';
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
 
 import { PrismaClient } from '../../generated/prisma/client';
 import {
@@ -59,9 +60,6 @@ import {
 
 const rootEnv = resolve(__dirname, '../../../../.env');
 if (existsSync(rootEnv)) loadEnv({ path: rootEnv, quiet: true });
-
-/** The household every system-guessed binding is written under. */
-const SYSTEM_HOUSEHOLD_NAME = 'OFF Auto-Match';
 
 /** Products read, and bindings written, per round trip. */
 const PAGE_SIZE = 1000;
@@ -96,7 +94,7 @@ async function main(): Promise<void> {
   console.log(
     options.dryRun
       ? 'Dry run: matches will be computed and reported, nothing will be written.'
-      : `Writing matches under household "${SYSTEM_HOUSEHOLD_NAME}".`,
+      : 'Writing matches under the system household.',
   );
   console.log(`Fuzzy threshold: ${options.fuzzyThreshold}`);
 
@@ -105,7 +103,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    const householdId = options.dryRun ? null : await ensureSystemHousehold(prisma);
+    const householdId = options.dryRun ? null : SYSTEM_HOUSEHOLD_ID;
     const { ingredientsBySlug, aliasesBySlug } = await loadCatalog(prisma);
 
     if (ingredientsBySlug.size === 0) {
@@ -119,32 +117,17 @@ async function main(): Promise<void> {
   }
 }
 
-async function ensureSystemHousehold(prisma: PrismaClient): Promise<number> {
-  const existing = await prisma.household.findFirst({
-    where: { name: SYSTEM_HOUSEHOLD_NAME },
-    select: { id: true },
-  });
-  if (existing) return existing.id;
-
-  const created = await prisma.household.create({
-    data: { name: SYSTEM_HOUSEHOLD_NAME },
-    select: { id: true },
-  });
-  console.log(`Created household "${SYSTEM_HOUSEHOLD_NAME}" (id ${created.id}).`);
-  return created.id;
-}
-
 /** Loads the whole global catalog into memory — low thousands of rows, not the product mirror. */
 async function loadCatalog(
   prisma: PrismaClient,
 ): Promise<{ ingredientsBySlug: IngredientsBySlug; aliasesBySlug: AliasesBySlug }> {
   const [ingredients, aliases] = await Promise.all([
     prisma.ingredient.findMany({
-      where: { householdId: null },
+      where: { householdId: SYSTEM_HOUSEHOLD_ID },
       select: { id: true, name: true, slug: true },
     }),
     prisma.ingredientAlias.findMany({
-      where: { ingredient: { householdId: null } },
+      where: { ingredient: { householdId: SYSTEM_HOUSEHOLD_ID } },
       select: { slug: true, ingredient: { select: { id: true, name: true, slug: true } } },
     }),
   ]);
@@ -293,12 +276,12 @@ async function fuzzyMatchBatch(
       FROM (
         SELECT ing.id, ing.name, ing.slug, similarity(ing.name, i.name) AS score
           FROM "ingredient" ing
-         WHERE ing."householdId" IS NULL AND ing.name % i.name
+         WHERE ing."householdId" = ${SYSTEM_HOUSEHOLD_ID} AND ing.name % i.name
         UNION ALL
         SELECT ing.id, ing.name, ing.slug, similarity(a.alias, i.name) AS score
           FROM "ingredient_alias" a
           JOIN "ingredient" ing ON ing.id = a."ingredientId"
-         WHERE ing."householdId" IS NULL AND a.alias % i.name
+         WHERE ing."householdId" = ${SYSTEM_HOUSEHOLD_ID} AND a.alias % i.name
       ) candidates
       ORDER BY candidates.score DESC
       LIMIT 1

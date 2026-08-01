@@ -1,3 +1,5 @@
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
+
 import {
   PARENT_SCOPED_MODELS,
   SHARED_CATALOG_MODELS,
@@ -37,7 +39,7 @@ describe('scopeTenantWhere', () => {
 describe('scopeCatalogWhere', () => {
   it('shows global rows plus the household own rows', () => {
     expect(scopeCatalogWhere(undefined, HOUSEHOLD)).toEqual({
-      OR: [{ householdId: null }, { householdId: HOUSEHOLD }],
+      OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId: HOUSEHOLD }],
     });
   });
 
@@ -45,7 +47,7 @@ describe('scopeCatalogWhere', () => {
     expect(scopeCatalogWhere({ slug: 'flour' }, HOUSEHOLD)).toEqual({
       AND: [
         { slug: 'flour' },
-        { OR: [{ householdId: null }, { householdId: HOUSEHOLD }] },
+        { OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId: HOUSEHOLD }] },
       ],
     });
   });
@@ -57,7 +59,7 @@ describe('scopeCatalogWhere', () => {
     expect(scoped).toEqual({
       AND: [
         { householdId: OTHER },
-        { OR: [{ householdId: null }, { householdId: HOUSEHOLD }] },
+        { OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId: HOUSEHOLD }] },
       ],
     });
   });
@@ -124,7 +126,7 @@ describe('scopeArgs', () => {
   it('applies catalog visibility rather than a hard filter for Ingredient', () => {
     const scoped = scopeArgs('Ingredient', 'findMany', {}, HOUSEHOLD);
     expect(scoped.where).toEqual({
-      OR: [{ householdId: null }, { householdId: HOUSEHOLD }],
+      OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId: HOUSEHOLD }],
     });
   });
 

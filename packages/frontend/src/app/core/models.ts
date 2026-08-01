@@ -18,7 +18,7 @@ export interface Unit {
 
 export interface Ingredient {
   id: number;
-  householdId: number | null;
+  householdId: number;
   name: string;
   slug: string;
   categoryId: number | null;

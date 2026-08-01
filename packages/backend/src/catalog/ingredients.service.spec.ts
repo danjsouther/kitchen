@@ -1,4 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
 
 import { IngredientsService, buildIngredientWhere, preferOwn } from './ingredients.service';
 
@@ -102,9 +103,9 @@ describe('buildIngredientWhere', () => {
 });
 
 describe('preferOwn', () => {
-  const global = { slug: 'all-purpose-flour', householdId: null, gramsPerMl: '0.53' };
+  const global = { slug: 'all-purpose-flour', householdId: SYSTEM_HOUSEHOLD_ID, gramsPerMl: '0.53' };
   const mine = { slug: 'all-purpose-flour', householdId: 4, gramsPerMl: '0.60' };
-  const other = { slug: 'sugar', householdId: null, gramsPerMl: '0.85' };
+  const other = { slug: 'sugar', householdId: SYSTEM_HOUSEHOLD_ID, gramsPerMl: '0.85' };
 
   // Two rows with the same slug look identical in a picker, and only one of them
   // carries the household's corrected density.
@@ -192,7 +193,7 @@ describe('IngredientsService.update', () => {
   });
 
   it('refuses to edit a shared row in place', async () => {
-    const db = makeDb({ id: 1, householdId: null, name: 'flour' });
+    const db = makeDb({ id: 1, householdId: SYSTEM_HOUSEHOLD_ID, name: 'flour' });
     const service = new IngredientsService(db as never);
 
     await expect(service.update(1, { gramsPerMl: null })).rejects.toBeInstanceOf(

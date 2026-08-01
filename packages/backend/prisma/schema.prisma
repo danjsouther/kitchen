@@ -3,10 +3,11 @@
 // Conventions:
 //   * Every quantity and price is Decimal, never Float. Floating point on 0.33 cups
 //     or $3.99 compounds badly across scaling and aggregation.
-//   * Tenant-scoped rows carry householdId. Catalog rows (Unit, Ingredient,
-//     IngredientCategory) use a NULLABLE householdId: null means seeded/global,
-//     non-null means a household's private addition. This is what keeps the
-//     multi-tenant future a config change rather than a migration everywhere.
+//   * Tenant-scoped rows carry householdId. Catalog rows (Unit, Ingredient) carry
+//     a householdId that is always set: SYSTEM_HOUSEHOLD_ID (0, the reserved
+//     "System" household) means seeded/global, any other value means a
+//     household's private addition. IngredientCategory has no householdId at
+//     all — it is global by construction, not by convention.
 //   * Table names are snake_case via @@map; fields use createdOn/deletedOn naming.
 //
 // Regenerate docs/ERD.md by hand when this changes — it is documentation, not a build artifact.
@@ -174,14 +175,14 @@ model HouseholdAiConfig {
 /// toBaseFactor is the multiplier into the kind's base unit.
 model Unit {
   id           Int      @id @default(autoincrement())
-  householdId  Int?
+  householdId  Int      @default(0)
   name         String
   plural       String
   abbrev       String?
   kind         UnitKind
   toBaseFactor Decimal  @db.Decimal(20, 10)
 
-  household            Household?          @relation(fields: [householdId], references: [id])
+  household            Household           @relation(fields: [householdId], references: [id])
   defaultForIngredient Ingredient[]
   recipeIngredients    RecipeIngredient[]
   pantryItems          PantryItem[]
@@ -210,7 +211,7 @@ model IngredientCategory {
 
 model Ingredient {
   id            Int      @id @default(autoincrement())
-  householdId   Int?
+  householdId   Int      @default(0)
   name          String
   slug          String
   categoryId    Int?
@@ -223,7 +224,7 @@ model Ingredient {
   shelfLifeDays Int?
   note          String?
 
-  household         Household?          @relation(fields: [householdId], references: [id])
+  household         Household           @relation(fields: [householdId], references: [id])
   category          IngredientCategory? @relation(fields: [categoryId], references: [id])
   defaultUnit       Unit?               @relation(fields: [defaultUnitId], references: [id])
   aliases           IngredientAlias[]

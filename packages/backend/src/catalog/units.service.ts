@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
-import type { UnitDef } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, type UnitDef } from '@kitchen/shared-types';
 
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import type { CreateUnitDto } from './dto/catalog.dto';
@@ -7,7 +7,7 @@ import type { CreateUnitDto } from './dto/catalog.dto';
 /** A unit as stored, including the fields the conversion engine needs. */
 export interface UnitRow {
   id: number;
-  householdId: number | null;
+  householdId: number;
   name: string;
   plural: string;
   abbrev: string | null;
@@ -44,7 +44,7 @@ export class UnitsService {
     });
     if (clash) {
       throw new ConflictException(
-        clash.householdId === null
+        clash.householdId === SYSTEM_HOUSEHOLD_ID
           ? `"${name}" is already a standard unit.`
           : `You already have a unit called "${name}".`,
       );

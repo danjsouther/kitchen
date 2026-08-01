@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { matchCandidates } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, matchCandidates } from '@kitchen/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { requireHouseholdId } from '../common/household-context';
@@ -208,12 +208,12 @@ export class ParserService {
       SELECT id, name, slug, score FROM (
         SELECT i.id, i.name, i.slug, similarity(i.name, ${name}) AS score
           FROM "ingredient" i
-         WHERE (i."householdId" IS NULL OR i."householdId" = ${householdId})
+         WHERE i."householdId" IN (${SYSTEM_HOUSEHOLD_ID}, ${householdId})
         UNION ALL
         SELECT i.id, i.name, i.slug, similarity(a.alias, ${name}) AS score
           FROM "ingredient_alias" a
           JOIN "ingredient" i ON i.id = a."ingredientId"
-         WHERE (i."householdId" IS NULL OR i."householdId" = ${householdId})
+         WHERE i."householdId" IN (${SYSTEM_HOUSEHOLD_ID}, ${householdId})
       ) matches
       WHERE score >= ${FUZZY_FLOOR}
       ORDER BY score DESC, name ASC
@@ -250,8 +250,8 @@ export class ParserService {
  * Both can share a slug once a household has forked a catalog row to fix its
  * density; the fork is the one carrying their correction.
  */
-function preferOwnIngredient<T extends { householdId: number | null }>(
+function preferOwnIngredient<T extends { householdId: number }>(
   rows: readonly T[],
 ): T | undefined {
-  return rows.find((row) => row.householdId !== null) ?? rows[0];
+  return rows.find((row) => row.householdId !== SYSTEM_HOUSEHOLD_ID) ?? rows[0];
 }

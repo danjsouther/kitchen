@@ -46,10 +46,17 @@ values.
 
 ## Tenancy
 
-Reads on catalog models see global rows (`householdId IS NULL`) plus the
-household's own. **Writes are strictly scoped to the household.** That asymmetry
-stops one household editing the shared catalog for everyone;
+Reads on catalog models see global rows (`householdId = SYSTEM_HOUSEHOLD_ID`,
+exported from `@kitchen/shared-types` as `0`) plus the household's own.
+**Writes are strictly scoped to the household.** That asymmetry stops one
+household editing the shared catalog for everyone;
 `packages/backend/src/prisma/tenancy.ts` enforces it.
+
+`SYSTEM_HOUSEHOLD_ID` is a real `Household` row ("System"), upserted once by
+the seed before any catalog row is written — `householdId` on `Unit` and
+`Ingredient` is a required FK, not nullable. It also owns the OFF auto-match
+product bindings (see below): one convention for "belongs to everyone," not
+two. Never delete it.
 
 Editing a shared ingredient forks a private copy first
 (`POST /ingredients/:id/customize`) rather than patching in place.
@@ -91,13 +98,18 @@ by `npm run off:import` and by **no endpoint**; nothing enforces that except
 that no service writes OFF fields. Keep it that way.
 
 The **default** ingredient category for a barcode is live ranked consensus:
-count `ProductBinding` rows per global ingredient (`householdId IS NULL`),
-highest wins; household-created ingredients never enter the ranking. A household
-owns only an optional **override** — present, it wins; cleared, the live default
-returns. Stocking under the consensus default must **not** write an override, or
-the household stops following the crowd. The consensus query is the one
-deliberate cross-tenant aggregate (unscoped Prisma); it exposes counts and
-global ingredients only.
+count `ProductBinding` rows per global ingredient
+(`householdId = SYSTEM_HOUSEHOLD_ID`), highest wins; household-created
+ingredients never enter the ranking. A household owns only an optional
+**override** — present, it wins; cleared, the live default returns. Stocking
+under the consensus default must **not** write an override, or the household
+stops following the crowd. The consensus query is the one deliberate
+cross-tenant aggregate (unscoped Prisma); it exposes counts and global
+ingredients only.
+
+`npm run off:match` seeds this consensus for barcodes nobody has voted on yet,
+by writing its guesses as `ProductBinding` rows under `SYSTEM_HOUSEHOLD_ID` —
+it is simply one more vote, and a real household's own vote out-tallies it.
 
 Never auto-categorize from OFF tags or name suggestions. An override is written
 only when the user explicitly changes the category (or picks one when consensus

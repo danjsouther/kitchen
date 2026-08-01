@@ -20,7 +20,7 @@ import { config as loadEnv } from 'dotenv';
 const rootEnv = resolve(__dirname, '../../../.env');
 if (existsSync(rootEnv)) loadEnv({ path: rootEnv, quiet: true });
 
-import { Role } from '@kitchen/shared-types';
+import { Role, SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
 
 import { PrismaClient } from '../generated/prisma/client';
 import { runUnscoped, runWithHousehold } from '../src/common/household-context';
@@ -195,7 +195,10 @@ async function runChecks(alice: Scratch, bob: Scratch, stamp: number): Promise<v
     db.ingredient.findFirst({ where: { slug: 'all-purpose-flour' } }),
   );
   check('seeded global ingredient is visible', flour !== null);
-  check('global ingredient has no household', flour?.householdId === null);
+  check(
+    'global ingredient belongs to the system household',
+    flour?.householdId === SYSTEM_HOUSEHOLD_ID,
+  );
 
   const privateIngredient = await asAlice(() =>
     db.ingredient.create({

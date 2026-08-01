@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
 
 import { IngredientsService } from '../catalog/ingredients.service';
 import { normalizeBarcode } from '../off/barcode';
@@ -292,8 +293,9 @@ export class ProductsService {
    * Ranked consensus across all households for a barcode.
    *
    * Uses the unscoped client so tenancy filtering does not hide other
-   * households' overrides. Only global ingredients (`householdId IS NULL`)
-   * enter the ranking — a private fork never becomes anyone else's default.
+   * households' overrides. Only global ingredients (`householdId =
+   * SYSTEM_HOUSEHOLD_ID`) enter the ranking — a private fork never becomes
+   * anyone else's default.
    */
   async rankedConsensus(barcode: string) {
     const ranks = await this.prisma.$queryRaw<
@@ -303,7 +305,7 @@ export class ProductsService {
       FROM "product_binding" pb
       INNER JOIN "ingredient" i ON i.id = pb."ingredientId"
       WHERE pb."productId" = ${barcode}
-        AND i."householdId" IS NULL
+        AND i."householdId" = ${SYSTEM_HOUSEHOLD_ID}
       GROUP BY pb."ingredientId"
       ORDER BY COUNT(*) DESC, pb."ingredientId" ASC
       LIMIT ${CONSENSUS_LIMIT}

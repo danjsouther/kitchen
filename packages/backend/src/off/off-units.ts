@@ -6,10 +6,12 @@
  * roughly a thirtieth of its real size and nothing downstream would notice.
  */
 
+import { SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
+
 /** The minimum a unit row needs to be matchable. */
 export interface MatchableUnit {
   id: number;
-  householdId: number | null;
+  householdId: number;
   name: string;
   plural: string;
   abbrev: string | null;
@@ -45,7 +47,7 @@ const TOKEN_ALIASES: Readonly<Record<string, string>> = {
  * can forget it.
  */
 export function buildUnitTokenMap(units: readonly MatchableUnit[]): Map<string, number> {
-  const global = units.filter((unit) => unit.householdId === null);
+  const global = units.filter((unit) => unit.householdId === SYSTEM_HOUSEHOLD_ID);
   const byName = new Map<string, number>();
 
   for (const unit of global) {

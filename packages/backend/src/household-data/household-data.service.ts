@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { slugify } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
 
 import { requireHouseholdId } from '../common/household-context';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
@@ -56,11 +56,11 @@ export class HouseholdDataService {
     // file is later imported into.
     const [globalUnits, globalIngredients, categories] = await Promise.all([
       this.db.unit.findMany({
-        where: { householdId: null },
+        where: { householdId: SYSTEM_HOUSEHOLD_ID },
         select: { id: true, name: true, kind: true },
       }),
       this.db.ingredient.findMany({
-        where: { householdId: null },
+        where: { householdId: SYSTEM_HOUSEHOLD_ID },
         select: { id: true, slug: true },
       }),
       this.db.ingredientCategory.findMany({ select: { id: true, name: true } }),
@@ -70,13 +70,13 @@ export class HouseholdDataService {
     const categoryById = new Map(categories.map((c) => [c.id, c.name]));
 
     const ownUnits = await this.db.unit.findMany({
-      where: { householdId: { not: null } },
+      where: { householdId: { not: SYSTEM_HOUSEHOLD_ID } },
       orderBy: { id: 'asc' },
     });
     const unitKeyByDbId = keyMap(ownUnits);
 
     const ownIngredients = await this.db.ingredient.findMany({
-      where: { householdId: { not: null } },
+      where: { householdId: { not: SYSTEM_HOUSEHOLD_ID } },
       orderBy: { id: 'asc' },
       include: { aliases: { select: { alias: true } } },
     });
@@ -396,8 +396,14 @@ export class HouseholdDataService {
     const householdId = requireHouseholdId();
 
     const [globalUnits, globalIngredients, categories] = await Promise.all([
-      this.db.unit.findMany({ where: { householdId: null }, select: { id: true, name: true } }),
-      this.db.ingredient.findMany({ where: { householdId: null }, select: { id: true, slug: true } }),
+      this.db.unit.findMany({
+        where: { householdId: SYSTEM_HOUSEHOLD_ID },
+        select: { id: true, name: true },
+      }),
+      this.db.ingredient.findMany({
+        where: { householdId: SYSTEM_HOUSEHOLD_ID },
+        select: { id: true, slug: true },
+      }),
       this.db.ingredientCategory.findMany({ select: { id: true, name: true } }),
     ]);
     const globalUnitIdByName = new Map(globalUnits.map((u) => [u.name, u.id]));
