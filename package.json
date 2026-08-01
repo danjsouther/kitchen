@@ -20,7 +20,10 @@
     "prisma:generate": "npm exec -w packages/backend -- prisma generate",
     "prisma:migrate": "npm exec -w packages/backend -- prisma migrate dev",
     "prisma:studio": "npm exec -w packages/backend -- prisma studio",
-    "seed": "npm run build -w packages/shared-types && npm run seed -w packages/backend"
+    "seed": "npm run build -w packages/shared-types && npm run seed -w packages/backend",
+    "off:download": "npm run off:download -w packages/backend --",
+    "off:import": "npm run off:import -w packages/backend --",
+    "off:match": "npm run off:match -w packages/backend --"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"
