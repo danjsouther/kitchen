@@ -4,6 +4,16 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.2.1 (2026-08-01)
+
+### Changed — Deployable frontend port (2026-08-01)
+
+`docker-compose.yml`'s frontend host port and the backend's CORS
+`FRONTEND_URL` are now overridable (`FRONTEND_PORT`, `FRONTEND_URL`), so a
+second deployment on a host that already has something bound to
+`127.0.0.1:8080` doesn't clash. Needed to run this app alongside another one
+behind nginx vhosts for different domains on the same box.
+
 ## 0.2.0 (2026-08-01)
 
 ### Added — Scan several pantry items before stocking them (2026-08-01)
