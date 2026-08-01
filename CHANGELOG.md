@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.1.0 (2026-07-31)
+
 ### Added — Vendor the git and playwright-skill Claude Code skills (2026-07-31)
 
 Checked in `.claude/skills/git/` (this repo's commit/branch/changelog rules)
