@@ -1,8 +1,8 @@
 /**
  * Fetches the monthly Open Food Facts JSONL export.
  *
- *   npm run off:download -w packages/backend
- *   npm run off:download -w packages/backend -- --out data/off
+ *   npm run off:download
+ *   npm run off:download -- --out data/off
  *
  * Separate from the importer so a slow multi-gigabyte download is not repeated
  * every time an import is retried, and so the import itself can run with no
@@ -101,7 +101,7 @@ function parseArgs(argv: readonly string[]): { outDir: string; url: string } {
   return { outDir, url };
 }
 
-const USAGE = `Usage: npm run off:download -w packages/backend [-- --out <dir>]
+const USAGE = `Usage: npm run off:download [-- --out <dir>]
 
   --out <dir>   Where to save the dump (default: ${DEFAULT_OUT})
   --url <url>   Override the source URL

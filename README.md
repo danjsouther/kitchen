@@ -146,9 +146,19 @@ import loads a JSONL export into a global `product` table, and every lookup —
 scan or name/brand search — is a local query.
 
 ```sh
-npm run off:download -w packages/backend                       # ~12.5 GB, monthly
-npm run off:import -w packages/backend -- --file data/off/openfoodfacts-products.jsonl.gz
+npm run off:download                                           # ~12.5 GB, monthly
+npm run off:import -- --file data/off/openfoodfacts-products.jsonl.gz
 ```
+
+Run these from the repo root, not with `-w packages/backend`. The root scripts
+build `@kitchen/shared-types` first; the CLIs import it, and it resolves through
+`dist/`, which only exists once it has been compiled. Going straight to the
+workspace on a fresh checkout — a deployment host, say — fails with
+`Cannot find module '@kitchen/shared-types'`, which reads like a broken install
+rather than an unbuilt one.
+
+`--file` is resolved relative to `packages/backend`, not the repo root: npm runs
+a workspace script with that directory as its cwd, either way you invoke it.
 
 The import streams gunzip → JSONL → batched upserts. It is idempotent, so
 re-running over the same dump refreshes rows rather than duplicating them —
@@ -195,7 +205,7 @@ decimal separator, a multipack, a pack size that is prose, a unit the seed has
 no row for, a row with no barcode, a row with no name, and a truncated line:
 
 ```sh
-npm run off:import -w packages/backend -- --file packages/backend/prisma/seed/off-fixtures/products.jsonl --all
+npm run off:import -- --file prisma/seed/off-fixtures/products.jsonl --all
 ```
 
 ### Global products, consensus default, household override
@@ -298,8 +308,8 @@ is a collaborative, free and open database made by contributors worldwide.
 | `npm run prisma:migrate` | Create/apply a migration |
 | `npm run prisma:studio` | Browse the database |
 | `npm run seed` | Load units, categories and the ingredient catalog |
-| `npm run off:download -w packages/backend` | Fetch the Open Food Facts dump (monthly) |
-| `npm run off:import -w packages/backend -- --file <path>` | Load it into the global product catalog |
+| `npm run off:download` | Fetch the Open Food Facts dump (monthly) |
+| `npm run off:import -- --file <path>` | Load it into the global product catalog |
 | `npm run off:match` | Match every mirrored product to a catalog ingredient, seeding the consensus default |
 | `npm run verify:tenancy -w packages/backend` | Prove household isolation against a real database |
 | `npm run smoke` | Walk the whole loop over HTTP against a running server |

@@ -1,9 +1,13 @@
 /**
  * Imports an Open Food Facts JSONL export into the global `product` table.
  *
- *   npm run off:import -w packages/backend -- --file data/off/products.jsonl.gz
- *   npm run off:import -w packages/backend -- --file <path> --all
- *   npm run off:import -w packages/backend -- --file <path> --replace
+ *   npm run off:import -- --file data/off/products.jsonl.gz
+ *   npm run off:import -- --file <path> --all
+ *   npm run off:import -- --file <path> --replace
+ *
+ * From the repo root — the root script builds @kitchen/shared-types, which this
+ * imports and which resolves through its dist/. Paths are relative to
+ * packages/backend, npm's cwd for a workspace script.
  *
  * **Run this monthly, by hand or by cron.** It is deliberately not part of
  * `dev:up`, the Docker entrypoint or any nightly job: the dump is measured in
@@ -84,7 +88,8 @@ async function main(): Promise<void> {
   if (!existsSync(options.file)) {
     fail(
       `No such file: ${options.file}\n` +
-        'Fetch a dump first: npm run off:download -w packages/backend',
+        'Paths are relative to packages/backend.\n' +
+        'Fetch a dump first: npm run off:download',
     );
   }
 

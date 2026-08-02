@@ -4,6 +4,27 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — The OFF CLIs now build `@kitchen/shared-types` before running (2026-08-01)
+
+`npm run off:import` on a deployment host died with
+`Cannot find module '@kitchen/shared-types'`. The package resolves through
+`dist/index.js`, and on a host checkout that `dist/` has never been built — the
+Docker image compiles it inside the builder stage, so nothing on the host ever
+does. The error reads like a broken `npm ci` rather than an unbuilt workspace,
+which is what made it hard to place.
+
+Every other root script that enters a workspace already guarded against this by
+building shared-types first (`dev`, `build`, `test`, `seed`); the three `off:*`
+scripts and `smoke` were the ones that did not. They do now.
+
+The documented invocations were also the ones that bypass the guard: the README
+and both CLI usage strings said `npm run off:import -w packages/backend`, which
+goes straight to the workspace. They now show the root form. Separately, the
+fixture example's `--file` path was repo-root-relative and had never resolved —
+npm runs a workspace script with `packages/backend` as its cwd, with or without
+`-w` — so it is now relative to that, and the importer's "no such file" message
+says which directory paths are resolved against.
+
 ## 0.3.1 (2026-08-01)
 
 ### Fixed — Keep the Open Food Facts dump out of the Docker build context (2026-08-01)
