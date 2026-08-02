@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.3.0 (2026-08-01)
+
 ### Added — Recipe sharing, with content-hash lineage (2026-08-01)
 
 A household can now publish one of its recipes to a shared catalog every

@@ -209,8 +209,11 @@ one the ingredient catalog uses:
   duplicate of one would defeat the only thing a barcode is good for.
 - **The default category is live ranked consensus** across all households'
   overrides for that barcode, counting only global ingredients
-  (`ingredient.householdId IS NULL`). Household-created ingredients never enter
-  the ranking.
+  (`ingredient.householdId = SYSTEM_HOUSEHOLD_ID`). Household-created
+  ingredients never enter the ranking. `npm run off:match` seeds that consensus
+  for barcodes nobody has voted on yet by writing its guesses as bindings under
+  the same reserved household — one more vote, which a real household's own
+  vote out-tallies.
 - **`ProductBinding` is an optional household override.** When present it wins
   over consensus; clearing it restores the live default. Stocking under the
   consensus category does not write an override.
@@ -297,6 +300,7 @@ is a collaborative, free and open database made by contributors worldwide.
 | `npm run seed` | Load units, categories and the ingredient catalog |
 | `npm run off:download -w packages/backend` | Fetch the Open Food Facts dump (monthly) |
 | `npm run off:import -w packages/backend -- --file <path>` | Load it into the global product catalog |
+| `npm run off:match` | Match every mirrored product to a catalog ingredient, seeding the consensus default |
 | `npm run verify:tenancy -w packages/backend` | Prove household isolation against a real database |
 | `npm run smoke` | Walk the whole loop over HTTP against a running server |
 
@@ -316,9 +320,12 @@ forgotten:
 
 - Every read and write on a household-owned model is filtered to the caller's household.
 - A `householdId` supplied by the caller is **overwritten**, not trusted.
-- Catalog models (units, ingredients) *read* the global rows plus the household's own, but
-  *write* only to the household's own. The asymmetry is the point: without it, one
-  household could edit or delete the seeded catalog that every household reads.
+- Catalog models (units, ingredients, shared recipes) *read* the global rows plus the
+  household's own, but *write* only to the household's own. The asymmetry is the point:
+  without it, one household could edit or delete the seeded catalog that every household
+  reads. "Global" is a real `Household` row with id `0` (`SYSTEM_HOUSEHOLD_ID`), not a
+  nullable `householdId` — one convention for "belongs to everyone", and ordinary unique
+  constraints instead of partial indexes working around NULL-is-distinct.
 - `Product` — the Open Food Facts mirror — is global with no `householdId` at all, and is
   not filtered. Nothing in the extension stops a write to it; what stops one is that no
   service and no endpoint performs one of OFF fields. Households own optional
@@ -578,7 +585,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 
 | Route | What it does |
 |---|---|
-| `/recipes` | The collection, searchable by title, description or an ingredient |
+| `/recipes` | The collection, searchable by title, description or an ingredient, with a Mine/Shared/All scope filter |
 | `/recipes/import` | Paste-and-review — raw text beside the parse, with a picker on anything uncertain |
 | `/recipes/new`, `/recipes/:id/edit` | Write one by hand, or correct one already saved |
 | `/recipes/:id` | The recipe, with a serving scaler |
@@ -588,6 +595,7 @@ four decimal places, which bounds any round-trip drift at 0.0001 of a unit.
 | `/cook` | Both "what can I cook" tabs |
 | `/shopping` | Generate from the plan, tick off with prices, receive into the pantry (per-item location; undo put-away) |
 | `/settings` | Locations, stores, and (for an admin) the AI key |
+| `/settings/data` | Export everything the household owns as one JSON file, or restore it |
 
 Two things the UI is careful about, because the backend went to the trouble of
 being careful about them:
@@ -657,6 +665,15 @@ Under construction. Built so far:
 - [x] Scan multiple pantry items in one session — continuous camera scan with per-scan
       flash/vibrate/snackbar feedback, a server-side queue that survives a refresh or a
       different device, then stock each item one at a time
+
+- [x] Whole-household export and restore (`/settings/data`) — everything the household owns
+      as one portable JSON file, catalog references by natural key, all-or-nothing import
+- [x] Search, filter and page-number paging across recipes, the ingredient catalog, pantry,
+      shopping lists and product overrides, on a shared `Paged<T>` response
+- [x] Bulk OFF product-to-ingredient matcher (`npm run off:match`) — seeds the consensus
+      default for barcodes nobody has voted on yet
+- [x] Recipe sharing — publish to the shared catalog, copy one back to edit, with
+      content-hash lineage and frozen archive rows so a `parentHash` always resolves
 
 Not done yet, and worth knowing before you rely on it:
 
