@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.3.1 (2026-08-01)
+
 ### Fixed — Keep the Open Food Facts dump out of the Docker build context (2026-08-01)
 
 A production build failed with `no space left on device` while running
