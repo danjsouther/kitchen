@@ -4,6 +4,33 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Recipe sharing, with content-hash lineage (2026-08-01)
+
+A household can now publish one of its recipes to a shared catalog every
+household can browse and cook from, and copy any shared recipe into its own
+collection to edit. Both follow the convention the ingredient catalog already
+uses: the shared copy is owned by the reserved system household
+(`SYSTEM_HOUSEHOLD_ID`), reads see the shared rows plus the household's own,
+and editing a shared recipe directly is refused in favour of an explicit fork
+— `Recipe` simply moves into `SHARED_CATALOG_MODELS` and inherits all of it.
+The recipe list gained a Mine/Shared/All scope filter.
+
+Every recipe also now carries a `hash` of its content and a `parentHash`
+naming the row it was derived from, so a recipe's history survives being
+copied. Publishing content that is already published resolves to the existing
+shared row rather than creating a duplicate; publishing an edited fork creates
+a new shared row whose `parentHash` chains back through the fork to the
+original, which is what makes the sequence of publishes a version history.
+
+Because a household's own recipe stays editable after it is published, its
+hash would otherwise go stale the moment it is edited again and leave the
+published row's `parentHash` pointing at nothing. So the instant a private
+recipe becomes a parent, its content at that exact hash is frozen into a row
+owned by a second reserved household, `ARCHIVE_HOUSEHOLD_ID` (-1, seeded
+alongside the system household). Those rows are append-only, never updated,
+and invisible to every read path — they exist only so a `parentHash` always
+resolves to something permanent.
+
 ### Changed — Replaced nullable `householdId` on the catalog with a reserved system household (2026-08-01)
 
 `Unit.householdId` and `Ingredient.householdId` were nullable, with `NULL`

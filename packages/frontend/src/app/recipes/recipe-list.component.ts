@@ -11,6 +11,8 @@ import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
+import { MatTooltipModule } from "@angular/material/tooltip";
+import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
@@ -30,6 +32,7 @@ const PAGE_LIMIT = 20;
     MatIconModule,
     MatInputModule,
     MatProgressBarModule,
+    MatTooltipModule,
     PagerComponent,
   ],
   template: `
@@ -81,7 +84,12 @@ const PAGE_LIMIT = 20;
         @for (recipe of recipes(); track recipe.id) {
           <mat-card class="card" [routerLink]="['/recipes', recipe.id]">
             <mat-card-content>
-              <h2>{{ recipe.title }}</h2>
+              <h2>
+                {{ recipe.title }}
+                @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
+                  <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
+                }
+              </h2>
               @if (recipe.description) {
                 <p class="muted desc">{{ recipe.description }}</p>
               }
@@ -148,11 +156,24 @@ const PAGE_LIMIT = 20;
     mat-chip-set {
       margin-top: 0.6rem;
     }
+    .pill {
+      margin-left: 0.5rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      vertical-align: middle;
+    }
+    .pill.shared {
+      background: var(--mat-sys-surface-container-highest);
+    }
   `,
 })
 export class RecipeListComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+
+  /** Exposed for the template's shared-catalog badge. */
+  readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
 
   readonly recipes = signal<RecipeSummary[]>([]);
   readonly total = signal(0);

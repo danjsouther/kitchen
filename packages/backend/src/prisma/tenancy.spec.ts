@@ -100,13 +100,13 @@ describe('scopeArgs', () => {
     'delete',
     'deleteMany',
   ])('scopes the where clause for %s on a tenant model', (operation) => {
-    const scoped = scopeArgs('Recipe', operation, { where: { id: 1 } }, HOUSEHOLD);
+    const scoped = scopeArgs('PantryItem', operation, { where: { id: 1 } }, HOUSEHOLD);
     expect(scoped.where).toEqual({ id: 1, householdId: HOUSEHOLD });
   });
 
   it('scopes create data on a tenant model', () => {
-    const scoped = scopeArgs('Recipe', 'create', { data: { title: 'Soup' } }, HOUSEHOLD);
-    expect(scoped.data).toEqual({ title: 'Soup', householdId: HOUSEHOLD });
+    const scoped = scopeArgs('PantryItem', 'create', { data: { quantity: '1' } }, HOUSEHOLD);
+    expect(scoped.data).toEqual({ quantity: '1', householdId: HOUSEHOLD });
   });
 
   it('scopes both halves of an upsert', () => {
@@ -163,9 +163,17 @@ describe('scopeArgs', () => {
   });
 
   it('leaves operations without a where or data untouched', () => {
-    const scoped = scopeArgs('Recipe', 'findMany', { take: 10 }, HOUSEHOLD);
+    const scoped = scopeArgs('PantryItem', 'findMany', { take: 10 }, HOUSEHOLD);
     expect(scoped.take).toBe(10);
     expect(scoped.where).toEqual({ householdId: HOUSEHOLD });
+  });
+
+  it('applies catalog visibility to Recipe reads, same as Ingredient/Unit', () => {
+    const scoped = scopeArgs('Recipe', 'findMany', { take: 10 }, HOUSEHOLD);
+    expect(scoped.take).toBe(10);
+    expect(scoped.where).toEqual({
+      OR: [{ householdId: SYSTEM_HOUSEHOLD_ID }, { householdId: HOUSEHOLD }],
+    });
   });
 
   it('does not mutate the caller args object', () => {
@@ -210,9 +218,16 @@ describe('model classification', () => {
   });
 
   it('scopes the models that hold household data', () => {
-    for (const model of ['Recipe', 'PantryItem', 'PlannedMeal', 'ShoppingList', 'HouseholdAiConfig']) {
+    for (const model of ['PantryItem', 'PlannedMeal', 'ShoppingList', 'HouseholdAiConfig']) {
       expect(TENANT_SCOPED_MODELS.has(model)).toBe(true);
     }
+  });
+
+  // Recipes follow the same reserved-household sharing pattern as Ingredient/Unit
+  // now that publishing exists: SYSTEM_HOUSEHOLD_ID owns the shared copy.
+  it('gives Recipe catalog-style shared visibility', () => {
+    expect(SHARED_CATALOG_MODELS.has('Recipe')).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has('Recipe')).toBe(false);
   });
 
   // The Open Food Facts mirror is shared by every household and owned by the

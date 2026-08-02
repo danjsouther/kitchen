@@ -4,13 +4,14 @@ import {
   input,
   signal,
 } from "@angular/core";
-import { RouterLink } from "@angular/router";
+import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatChipsModule } from "@angular/material/chips";
 import { MatIconModule } from "@angular/material/icon";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatTooltipModule } from "@angular/material/tooltip";
+import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
@@ -37,15 +38,33 @@ import type { Recipe, RecipeIngredient } from "../core/models";
       <div class="page">
         <div class="page-header">
           <div>
-            <h1>{{ r.title }}</h1>
+            <h1>
+              {{ r.title }}
+              @if (r.householdId === SYSTEM_HOUSEHOLD_ID) {
+                <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
+              }
+            </h1>
             @if (r.description) {
               <p class="muted">{{ r.description }}</p>
             }
           </div>
-          <a mat-stroked-button [routerLink]="['/recipes', r.id, 'edit']">
-            <mat-icon>edit</mat-icon>
-            Edit
-          </a>
+          <div class="row">
+            @if (r.householdId === SYSTEM_HOUSEHOLD_ID) {
+              <button mat-stroked-button [disabled]="busy()" (click)="copy(r.id)">
+                <mat-icon>content_copy</mat-icon>
+                Copy to my recipes
+              </button>
+            } @else {
+              <button mat-stroked-button [disabled]="busy()" (click)="publish(r.id)">
+                <mat-icon>share</mat-icon>
+                Share with every household
+              </button>
+              <a mat-stroked-button [routerLink]="['/recipes', r.id, 'edit']">
+                <mat-icon>edit</mat-icon>
+                Edit
+              </a>
+            }
+          </div>
         </div>
 
         <div class="chip-row meta muted">
@@ -166,6 +185,21 @@ import type { Recipe, RecipeIngredient } from "../core/models";
       margin: 0;
       font-size: 1.6rem;
     }
+    .row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .pill {
+      margin-left: 0.5rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      vertical-align: middle;
+    }
+    .pill.shared {
+      background: var(--mat-sys-surface-container-highest);
+    }
     h2 {
       font-size: 1.1rem;
       font-weight: 500;
@@ -242,17 +276,59 @@ import type { Recipe, RecipeIngredient } from "../core/models";
 export class RecipeDetailComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+  private readonly router = inject(Router);
+
+  /** Exposed for the template's shared-catalog checks. */
+  readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
 
   /** Bound from the route by `withComponentInputBinding`. */
   readonly id = input.required<string>();
 
   readonly recipe = signal<Recipe | null>(null);
   readonly loading = signal(true);
+  readonly busy = signal(false);
   readonly servings = signal(0);
   readonly baseServings = signal(0);
 
   constructor() {
     queueMicrotask(() => this.load());
+  }
+
+  /** Publishes a copy of this household's recipe into the shared catalog. */
+  publish(id: number): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api.publishRecipe(id).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.notify.success("Published — every household can now see and copy this.");
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not publish that recipe.");
+      },
+    });
+  }
+
+  /**
+   * Forks a shared-catalog recipe into a household-owned copy, then opens the
+   * copy for editing — this is the entry point for editing a global recipe,
+   * so it reads naturally as "make it mine before you touch it."
+   */
+  copy(id: number): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api.copyRecipe(id).subscribe({
+      next: (copy) => {
+        this.busy.set(false);
+        this.notify.success(`Copied “${copy.title}” to your recipes.`);
+        void this.router.navigate(["/recipes", copy.id, "edit"]);
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not copy that recipe.");
+      },
+    });
   }
 
   /**

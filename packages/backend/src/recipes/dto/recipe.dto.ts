@@ -256,6 +256,15 @@ export class RecipeQueryDto {
   @IsIn(['active', 'archived', 'all'])
   status?: 'active' | 'archived' | 'all';
 
+  /**
+   * `'mine'` resolves to "my own" (never a real match for another household —
+   * the visibility rule already excludes them) — `'shared'` is the
+   * SYSTEM_HOUSEHOLD_ID catalog. Default `'all'` applies no extra filter.
+   */
+  @IsOptional()
+  @IsIn(['mine', 'shared', 'all'])
+  scope?: 'mine' | 'shared' | 'all';
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

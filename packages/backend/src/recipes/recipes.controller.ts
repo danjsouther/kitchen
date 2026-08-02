@@ -72,4 +72,16 @@ export class RecipesController {
   restore(@Param('id', ParseIntPipe) id: number) {
     return this.recipes.restore(id);
   }
+
+  /** Publishes a copy of this household's recipe into the shared catalog. */
+  @Post(':id/publish')
+  publish(@Param('id', ParseIntPipe) id: number) {
+    return this.recipes.publish(id);
+  }
+
+  /** Forks a shared-catalog recipe into a household-owned copy. */
+  @Post(':id/copy')
+  copy(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') userId: number) {
+    return this.recipes.copy(id, userId);
+  }
 }

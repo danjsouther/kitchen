@@ -18,6 +18,7 @@ import {
 } from "@angular/forms/signals";
 import { Router, RouterLink } from "@angular/router";
 import { firstValueFrom } from "rxjs";
+import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatFormFieldModule } from "@angular/material/form-field";
@@ -449,6 +450,15 @@ export class RecipeFormComponent {
   readonly error = signal("");
 
   /**
+   * The owning household of the recipe being edited, `null` on `/recipes/new`.
+   *
+   * Set from the loaded recipe and consulted only at save time — forking a
+   * shared-catalog recipe first is `save`'s job, not something the rest of the
+   * form needs to know about.
+   */
+  private ownerHouseholdId: number | null = null;
+
+  /**
    * Ids are 0 rather than null where nothing is chosen, and every text field
    * starts as "" — Signal Forms requires non-null initial values throughout.
    */
@@ -555,6 +565,7 @@ export class RecipeFormComponent {
 
     this.api.recipe(id).subscribe({
       next: (recipe) => {
+        this.ownerHouseholdId = recipe.householdId;
         this.model.set({
           title: recipe.title,
           description: recipe.description ?? "",
@@ -749,10 +760,18 @@ export class RecipeFormComponent {
       }
 
       try {
+        let targetId = Number(this.id());
+
+        // A shared-catalog recipe is forked first: the PATCH must land on a
+        // row this household owns, or the tenancy layer will (correctly)
+        // refuse it. The fork becomes what gets edited from here on.
+        if (this.editing() && this.ownerHouseholdId === SYSTEM_HOUSEHOLD_ID) {
+          const copy = await firstValueFrom(this.api.copyRecipe(targetId));
+          targetId = copy.id;
+        }
+
         const recipe = await firstValueFrom(
-          this.editing()
-            ? this.api.updateRecipe(Number(this.id()), body)
-            : this.api.createRecipe(body),
+          this.editing() ? this.api.updateRecipe(targetId, body) : this.api.createRecipe(body),
         );
         this.notify.success(`Saved “${recipe.title}”.`);
         void this.router.navigate(["/recipes", recipe.id]);

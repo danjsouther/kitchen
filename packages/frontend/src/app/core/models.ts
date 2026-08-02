@@ -201,6 +201,7 @@ export interface RecipeStep {
 
 export interface RecipeSummary {
   id: number;
+  householdId: number;
   title: string;
   slug: string;
   description: string | null;
@@ -211,10 +212,13 @@ export interface RecipeSummary {
   tags: Tag[];
   ingredientCount: number;
   stepCount: number;
+  hash: string;
+  parentHash: string | null;
 }
 
 export interface Recipe {
   id: number;
+  householdId: number;
   title: string;
   slug: string;
   description: string | null;
@@ -229,6 +233,8 @@ export interface Recipe {
   ingredients: RecipeIngredient[];
   steps: RecipeStep[];
   originalServings?: number;
+  hash: string;
+  parentHash: string | null;
 }
 
 /**

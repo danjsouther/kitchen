@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
+import { ARCHIVE_HOUSEHOLD_ID, SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
 import { config as loadEnv } from 'dotenv';
 
 import { PrismaClient } from '../../generated/prisma/client';
@@ -102,6 +102,15 @@ async function main(): Promise<void> {
       where: { id: SYSTEM_HOUSEHOLD_ID },
       update: {},
       create: { id: SYSTEM_HOUSEHOLD_ID, name: 'System' },
+    });
+
+    // ---- Archive household ---------------------------------------------------
+    // Owns immutable recipe-lineage snapshots (see RecipesService.publish).
+    // Same reasoning as System: the FK must exist before anything references it.
+    await prisma.household.upsert({
+      where: { id: ARCHIVE_HOUSEHOLD_ID },
+      update: {},
+      create: { id: ARCHIVE_HOUSEHOLD_ID, name: 'Archive' },
     });
 
     // ---- Units -------------------------------------------------------------

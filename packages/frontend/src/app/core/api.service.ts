@@ -143,7 +143,14 @@ export class ApiService {
   // -- Recipes -------------------------------------------------------------
 
   recipes(
-    query: { q?: string; tag?: string; status?: string; limit?: number; offset?: number } = {},
+    query: {
+      q?: string;
+      tag?: string;
+      status?: string;
+      scope?: 'mine' | 'shared' | 'all';
+      limit?: number;
+      offset?: number;
+    } = {},
   ) {
     return this.get<M.Paged<M.RecipeSummary>>('/recipes', query);
   }
@@ -170,6 +177,16 @@ export class ApiService {
 
   restoreRecipe(id: number) {
     return this.post<M.Recipe>(`/recipes/${id}/restore`);
+  }
+
+  /** Publishes a copy of this household's recipe into the shared catalog. */
+  publishRecipe(id: number) {
+    return this.post<M.Recipe>(`/recipes/${id}/publish`);
+  }
+
+  /** Forks a shared-catalog recipe into a household-owned copy. */
+  copyRecipe(id: number) {
+    return this.post<M.Recipe>(`/recipes/${id}/copy`);
   }
 
   parseRecipe(text: string) {

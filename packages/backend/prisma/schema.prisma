@@ -7,7 +7,10 @@
 //     a householdId that is always set: SYSTEM_HOUSEHOLD_ID (0, the reserved
 //     "System" household) means seeded/global, any other value means a
 //     household's private addition. IngredientCategory has no householdId at
-//     all — it is global by construction, not by convention.
+//     all — it is global by construction, not by convention. Recipe follows the
+//     same convention for sharing plus a second reserved household,
+//     ARCHIVE_HOUSEHOLD_ID (-1, "Archive"), for immutable lineage snapshots —
+//     see Recipe.hash/parentHash below.
 //   * Table names are snake_case via @@map; fields use createdOn/deletedOn naming.
 //
 // Regenerate docs/ERD.md by hand when this changes — it is documentation, not a build artifact.
@@ -333,7 +336,7 @@ model IngredientAlias {
 
 model Recipe {
   id          Int       @id @default(autoincrement())
-  householdId Int
+  householdId Int       @default(0)
   title       String
   slug        String
   description String?
@@ -346,6 +349,13 @@ model Recipe {
   sourceNote  String?
   imagePath   String?
   notes       String?
+  /// SHA-256 of the canonicalized recipe body. Recomputed on every write.
+  hash        String
+  /// The hash of the row this one was derived from (publish or copy). Null
+  /// means this row was never forked from anything — a household's original.
+  /// Not a DB foreign key: the parent can be owned by a different household
+  /// (SYSTEM_HOUSEHOLD_ID, ARCHIVE_HOUSEHOLD_ID, or another household's row).
+  parentHash  String?
   createdById Int
   createdOn   DateTime  @default(now())
   updatedOn   DateTime  @updatedAt
@@ -359,7 +369,7 @@ model Recipe {
   plannedMeals PlannedMeal[]
   cookSessions CookSession[]
 
-  @@unique([householdId, slug])
+  @@unique([householdId, slug, hash])
   @@index([householdId, archivedOn])
   @@map("recipe")
 }

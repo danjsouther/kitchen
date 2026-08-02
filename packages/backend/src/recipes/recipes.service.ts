@@ -1,22 +1,27 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ARCHIVE_HOUSEHOLD_ID,
+  SYSTEM_HOUSEHOLD_ID,
   TagKind,
   formatWithUnit,
   scaleForServings,
   slugify,
 } from '@kitchen/shared-types';
 
+import { requireHouseholdId } from '../common/household-context';
 import { uniqueSlug } from '../common/unique-slug';
 import { IngredientsService } from '../catalog/ingredients.service';
 import { UnitsService, toUnitDef } from '../catalog/units.service';
 import { resolveLimit } from '../common/pagination';
-import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
+import { PrismaService, TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
+import { computeRecipeHash } from './recipe-hash';
 import type {
   CreateRecipeDto,
   RecipeIngredientDto,
@@ -62,6 +67,12 @@ const DETAIL_INCLUDE = {
 export class RecipesService {
   constructor(
     @Inject(TENANT_PRISMA) private readonly db: TenantPrisma,
+    // The raw, unscoped client. Publishing and archiving-on-publish both write
+    // rows under a reserved household (SYSTEM_HOUSEHOLD_ID, ARCHIVE_HOUSEHOLD_ID)
+    // that is never the caller's own, and TENANT_PRISMA creates on
+    // SHARED_CATALOG_MODELS always stamp the caller's own household — see
+    // ProductsService for the same pattern used for its one cross-tenant read.
+    private readonly prisma: PrismaService,
     private readonly units: UnitsService,
     private readonly ingredients: IngredientsService,
   ) {}
@@ -86,6 +97,7 @@ export class RecipesService {
         take: limit,
         select: {
           id: true,
+          householdId: true,
           title: true,
           slug: true,
           description: true,
@@ -95,6 +107,8 @@ export class RecipesService {
           imagePath: true,
           archivedOn: true,
           updatedOn: true,
+          hash: true,
+          parentHash: true,
           tags: { include: { tag: { select: { id: true, name: true, slug: true, kind: true } } } },
           _count: { select: { ingredients: true, steps: true } },
         },
@@ -183,23 +197,49 @@ export class RecipesService {
   async create(dto: CreateRecipeDto, userId: number) {
     await this.validateLines(dto.ingredients);
 
-    const slug = await uniqueSlug(dto.title, (candidate) => this.slugTaken(candidate));
+    const slug = await uniqueSlug(dto.title, (candidate) =>
+      this.slugTaken(candidate, requireHouseholdId()),
+    );
     const tagIds = await this.resolveTags(dto.tags ?? []);
+
+    const title = dto.title.trim();
+    const description = dto.description?.trim() || null;
+    const prepMinutes = dto.prepMinutes ?? null;
+    const cookMinutes = dto.cookMinutes ?? null;
+    const sourceUrl = dto.sourceUrl ?? null;
+    const sourceNote = dto.sourceNote?.trim() || null;
+    const notes = dto.notes?.trim() || null;
+    const ingredients = dto.ingredients.map(toIngredientRow);
+    const steps = dto.steps.map(toStepRow);
+
+    const hash = computeRecipeHash({
+      title,
+      description,
+      servings: dto.servings,
+      prepMinutes,
+      cookMinutes,
+      sourceUrl,
+      sourceNote,
+      notes,
+      ingredients,
+      steps,
+    });
 
     const created = await this.db.recipe.create({
       data: {
-        title: dto.title.trim(),
+        title,
         slug,
-        description: dto.description?.trim() || null,
+        description,
         servings: dto.servings,
-        prepMinutes: dto.prepMinutes ?? null,
-        cookMinutes: dto.cookMinutes ?? null,
-        sourceUrl: dto.sourceUrl ?? null,
-        sourceNote: dto.sourceNote?.trim() || null,
-        notes: dto.notes?.trim() || null,
+        prepMinutes,
+        cookMinutes,
+        sourceUrl,
+        sourceNote,
+        notes,
+        hash,
         createdById: userId,
-        ingredients: { create: dto.ingredients.map(toIngredientRow) },
-        steps: { create: dto.steps.map(toStepRow) },
+        ingredients: { create: ingredients },
+        steps: { create: steps },
         tags: { create: tagIds.map((tagId) => ({ tagId })) },
       } as never,
       include: DETAIL_INCLUDE,
@@ -220,9 +260,46 @@ export class RecipesService {
   async update(id: number, dto: UpdateRecipeDto) {
     const existing = await this.db.recipe.findFirst({
       where: { id },
-      select: { id: true, title: true, slug: true },
+      select: {
+        id: true,
+        householdId: true,
+        title: true,
+        slug: true,
+        description: true,
+        servings: true,
+        prepMinutes: true,
+        cookMinutes: true,
+        sourceUrl: true,
+        sourceNote: true,
+        notes: true,
+        ingredients: {
+          select: {
+            sortOrder: true,
+            ingredientId: true,
+            rawText: true,
+            quantity: true,
+            unitId: true,
+            preparation: true,
+            groupLabel: true,
+            optional: true,
+          },
+        },
+        steps: { select: { sortOrder: true, text: true } },
+      },
     });
     if (!existing) throw new NotFoundException(`No recipe with id ${id}.`);
+
+    // Global rows are refused rather than silently ignored — the tenancy
+    // extension already scopes catalog *writes* to the household's own rows,
+    // so an attempt on a system-owned row would otherwise update nothing and
+    // report success. Publishing a new version is `publish`'s job, through the
+    // household's own fork.
+    if (existing.householdId === SYSTEM_HOUSEHOLD_ID) {
+      throw new ForbiddenException(
+        'This recipe is part of the shared catalog and cannot be edited ' +
+          'directly. Make your own copy of it first, then edit that.',
+      );
+    }
 
     if (dto.ingredients) await this.validateLines(dto.ingredients);
 
@@ -235,7 +312,7 @@ export class RecipesService {
       // would churn `chili` into `chili-2`.
       if (slugify(dto.title) !== slugify(existing.title)) {
         data.slug = await uniqueSlug(dto.title, (candidate) =>
-          this.slugTaken(candidate, id),
+          this.slugTaken(candidate, requireHouseholdId(), id),
         );
       }
     }
@@ -261,19 +338,45 @@ export class RecipesService {
       if (value !== undefined) data[field] = value > 0 ? value : null;
     }
 
+    const ingredients = dto.ingredients
+      ? dto.ingredients.map(toIngredientRow)
+      : existing.ingredients.map((line) => ({
+          ...line,
+          quantity: line.quantity === null ? null : String(line.quantity),
+        }));
+    const steps = dto.steps ? dto.steps.map(toStepRow) : existing.steps;
+
     if (dto.ingredients) {
-      data.ingredients = {
-        deleteMany: {},
-        create: dto.ingredients.map(toIngredientRow),
-      };
+      data.ingredients = { deleteMany: {}, create: ingredients };
     }
     if (dto.steps) {
-      data.steps = { deleteMany: {}, create: dto.steps.map(toStepRow) };
+      data.steps = { deleteMany: {}, create: steps };
     }
     if (dto.tags) {
       const tagIds = await this.resolveTags(dto.tags);
       data.tags = { deleteMany: {}, create: tagIds.map((tagId) => ({ tagId })) };
     }
+
+    // Recomputed from the full resulting content — merging what changed
+    // (`data`) over what didn't (`existing`) — not just the patch, since a
+    // partial update still produces one concrete row with one concrete hash.
+    // `parentHash` is deliberately never touched here: an in-place edit of a
+    // private recipe is not a new lineage node, just the same one moving on.
+    data.hash = computeRecipeHash({
+      title: (data.title as string | undefined) ?? existing.title,
+      description:
+        'description' in data ? (data.description as string | null) : existing.description,
+      servings: (data.servings as number | undefined) ?? existing.servings,
+      prepMinutes:
+        'prepMinutes' in data ? (data.prepMinutes as number | null) : existing.prepMinutes,
+      cookMinutes:
+        'cookMinutes' in data ? (data.cookMinutes as number | null) : existing.cookMinutes,
+      sourceUrl: 'sourceUrl' in data ? (data.sourceUrl as string | null) : existing.sourceUrl,
+      sourceNote: 'sourceNote' in data ? (data.sourceNote as string | null) : existing.sourceNote,
+      notes: 'notes' in data ? (data.notes as string | null) : existing.notes,
+      ingredients,
+      steps,
+    });
 
     const updated = await this.db.recipe.update({
       where: { id },
@@ -293,43 +396,299 @@ export class RecipesService {
    * collection" should mean.
    */
   async archive(id: number) {
+    await this.assertOwned(id);
+
     const { count } = await this.db.recipe.updateMany({
       where: { id, archivedOn: null },
       data: { archivedOn: new Date() },
     });
-    if (count === 0) {
-      // Either it does not exist or it is already archived; distinguish so the
-      // second case is not reported as a missing recipe.
-      await this.assertExists(id);
-      throw new ConflictException('That recipe is already archived.');
-    }
+    // Existence and ownership are already settled above, so a count of zero
+    // here can only mean it was already archived.
+    if (count === 0) throw new ConflictException('That recipe is already archived.');
     return this.findOne(id);
   }
 
   async restore(id: number) {
+    await this.assertOwned(id);
+
     const { count } = await this.db.recipe.updateMany({
       where: { id, archivedOn: { not: null } },
       data: { archivedOn: null },
     });
-    if (count === 0) {
-      await this.assertExists(id);
-      throw new ConflictException('That recipe is not archived.');
-    }
+    if (count === 0) throw new ConflictException('That recipe is not archived.');
     return this.findOne(id);
+  }
+
+  /**
+   * Publishes a copy of this household's recipe into the shared catalog —
+   * `SYSTEM_HOUSEHOLD_ID` — so every household can see and copy it.
+   *
+   * The source may already be published: publishing an edited fork of a
+   * public recipe is how a new public *version* is made, each one a brand-new
+   * row rather than an edit of the old one. Publishing content that already
+   * exists under `SYSTEM_HOUSEHOLD_ID` resolves to that existing row instead
+   * of creating a duplicate — the `(householdId, slug, hash)` constraint would
+   * refuse the duplicate anyway, but returning the match is friendlier than
+   * surfacing that as an error.
+   */
+  async publish(id: number) {
+    const source = await this.db.recipe.findFirst({
+      where: { id },
+      select: {
+        id: true,
+        householdId: true,
+        title: true,
+        slug: true,
+        description: true,
+        servings: true,
+        prepMinutes: true,
+        cookMinutes: true,
+        sourceUrl: true,
+        sourceNote: true,
+        notes: true,
+        imagePath: true,
+        hash: true,
+        createdById: true,
+        ingredients: {
+          select: {
+            sortOrder: true,
+            ingredientId: true,
+            rawText: true,
+            quantity: true,
+            unitId: true,
+            preparation: true,
+            groupLabel: true,
+            optional: true,
+          },
+        },
+        steps: { select: { sortOrder: true, text: true } },
+      },
+    });
+    if (!source) throw new NotFoundException(`No recipe with id ${id}.`);
+    if (source.householdId === ARCHIVE_HOUSEHOLD_ID) {
+      throw new NotFoundException(`No recipe with id ${id}.`);
+    }
+
+    const existingGlobal = await this.db.recipe.findFirst({
+      where: { householdId: SYSTEM_HOUSEHOLD_ID, hash: source.hash },
+      include: DETAIL_INCLUDE,
+    });
+    if (existingGlobal) return shapeDetail(existingGlobal);
+
+    const slug = await uniqueSlug(source.title, (candidate) =>
+      this.slugTaken(candidate, SYSTEM_HOUSEHOLD_ID),
+    );
+
+    // A line that points at a household-private ingredient would be invisible
+    // or broken for every other household — drop the link and keep `rawText`,
+    // the same "unresolved line" representation an unmatched paste already
+    // uses.
+    const ingredientIds = source.ingredients
+      .map((line) => line.ingredientId)
+      .filter((lineId): lineId is number => lineId !== null);
+    const globalIngredientIds =
+      ingredientIds.length === 0
+        ? new Set<number>()
+        : new Set(
+            (
+              await this.prisma.ingredient.findMany({
+                where: { id: { in: ingredientIds }, householdId: SYSTEM_HOUSEHOLD_ID },
+                select: { id: true },
+              })
+            ).map((row) => row.id),
+          );
+
+    const ingredients = source.ingredients.map((line) => ({
+      sortOrder: line.sortOrder,
+      ingredientId:
+        line.ingredientId !== null && globalIngredientIds.has(line.ingredientId)
+          ? line.ingredientId
+          : null,
+      rawText: line.rawText,
+      quantity: line.quantity === null ? null : String(line.quantity),
+      unitId: line.unitId,
+      preparation: line.preparation,
+      groupLabel: line.groupLabel,
+      optional: line.optional,
+    }));
+    const steps = source.steps.map((step) => ({ sortOrder: step.sortOrder, text: step.text }));
+
+    // Both this row and, below, the archive row need an explicit householdId
+    // that is never the caller's own, so both go through the raw unscoped
+    // client — TENANT_PRISMA creates on SHARED_CATALOG_MODELS always stamp the
+    // caller's own household, which is exactly wrong here.
+    const published = await this.prisma.recipe.create({
+      data: {
+        householdId: SYSTEM_HOUSEHOLD_ID,
+        title: source.title,
+        slug,
+        description: source.description,
+        servings: source.servings,
+        prepMinutes: source.prepMinutes,
+        cookMinutes: source.cookMinutes,
+        sourceUrl: source.sourceUrl,
+        sourceNote: source.sourceNote,
+        notes: source.notes,
+        imagePath: source.imagePath,
+        hash: source.hash,
+        parentHash: source.hash,
+        createdById: source.createdById,
+        ingredients: { create: ingredients },
+        steps: { create: steps },
+      },
+      include: DETAIL_INCLUDE,
+    });
+
+    // A real household's row is mutable, so the moment it becomes a parent its
+    // content at this exact hash has to be frozen — otherwise `parentHash`
+    // above would go stale the next time the household edits their recipe.
+    // System-owned sources need no archive copy: they are never edited in
+    // place (see `update`'s guard), so they are already permanent.
+    if (source.householdId !== SYSTEM_HOUSEHOLD_ID) {
+      const alreadyArchived = await this.prisma.recipe.findFirst({
+        where: { householdId: ARCHIVE_HOUSEHOLD_ID, hash: source.hash },
+        select: { id: true },
+      });
+      if (!alreadyArchived) {
+        await this.prisma.recipe.create({
+          data: {
+            householdId: ARCHIVE_HOUSEHOLD_ID,
+            title: source.title,
+            slug: source.slug,
+            description: source.description,
+            servings: source.servings,
+            prepMinutes: source.prepMinutes,
+            cookMinutes: source.cookMinutes,
+            sourceUrl: source.sourceUrl,
+            sourceNote: source.sourceNote,
+            notes: source.notes,
+            imagePath: source.imagePath,
+            hash: source.hash,
+            parentHash: null,
+            createdById: source.createdById,
+            ingredients: { create: ingredients },
+            steps: { create: steps },
+          },
+        });
+      }
+    }
+
+    return shapeDetail(published);
+  }
+
+  /**
+   * Forks a shared-catalog recipe into a household-owned copy — the recipe
+   * analogue of `IngredientsService.customize`.
+   */
+  async copy(id: number, userId: number) {
+    const source = await this.db.recipe.findFirst({
+      where: { id },
+      select: {
+        id: true,
+        householdId: true,
+        title: true,
+        slug: true,
+        description: true,
+        servings: true,
+        prepMinutes: true,
+        cookMinutes: true,
+        sourceUrl: true,
+        sourceNote: true,
+        notes: true,
+        imagePath: true,
+        hash: true,
+        ingredients: {
+          select: {
+            sortOrder: true,
+            ingredientId: true,
+            rawText: true,
+            quantity: true,
+            unitId: true,
+            preparation: true,
+            groupLabel: true,
+            optional: true,
+          },
+        },
+        steps: { select: { sortOrder: true, text: true } },
+      },
+    });
+    if (!source) throw new NotFoundException(`No recipe with id ${id}.`);
+    if (source.householdId !== SYSTEM_HOUSEHOLD_ID) {
+      throw new ConflictException(
+        `"${source.title}" already belongs to your household — edit it directly.`,
+      );
+    }
+
+    const householdId = requireHouseholdId();
+    const mine = await this.db.recipe.findFirst({
+      where: { slug: source.slug, householdId },
+      select: { id: true },
+    });
+    if (mine) {
+      throw new ConflictException(`You already have your own copy of "${source.title}".`);
+    }
+
+    const ingredients = source.ingredients.map((line) => ({
+      sortOrder: line.sortOrder,
+      ingredientId: line.ingredientId,
+      rawText: line.rawText,
+      quantity: line.quantity === null ? null : String(line.quantity),
+      unitId: line.unitId,
+      preparation: line.preparation,
+      groupLabel: line.groupLabel,
+      optional: line.optional,
+    }));
+    const steps = source.steps.map((step) => ({ sortOrder: step.sortOrder, text: step.text }));
+
+    // Identical content to the source at fork time is expected, not a
+    // collision: the caller's own household id differs from
+    // SYSTEM_HOUSEHOLD_ID, so (householdId, slug, hash) is still unique.
+    const created = await this.db.recipe.create({
+      data: {
+        title: source.title,
+        slug: source.slug,
+        description: source.description,
+        servings: source.servings,
+        prepMinutes: source.prepMinutes,
+        cookMinutes: source.cookMinutes,
+        sourceUrl: source.sourceUrl,
+        sourceNote: source.sourceNote,
+        notes: source.notes,
+        imagePath: source.imagePath,
+        hash: source.hash,
+        parentHash: source.hash,
+        createdById: userId,
+        ingredients: { create: ingredients },
+        steps: { create: steps },
+      } as never,
+      include: DETAIL_INCLUDE,
+    });
+
+    return shapeDetail(created);
   }
 
   // -- Internals -----------------------------------------------------------
 
-  private async assertExists(id: number): Promise<void> {
-    const found = await this.db.recipe.findFirst({ where: { id }, select: { id: true } });
+  /** Loads a recipe's id/householdId and refuses a system-owned (or missing) one. */
+  private async assertOwned(id: number): Promise<void> {
+    const found = await this.db.recipe.findFirst({
+      where: { id },
+      select: { id: true, householdId: true },
+    });
     if (!found) throw new NotFoundException(`No recipe with id ${id}.`);
+    if (found.householdId === SYSTEM_HOUSEHOLD_ID) {
+      throw new ForbiddenException(
+        'This recipe is part of the shared catalog and cannot be changed ' +
+          'directly. Make your own copy of it first.',
+      );
+    }
   }
 
-  private async slugTaken(slug: string, exceptId?: number): Promise<boolean> {
-    const row = await this.db.recipe.findFirst({
-      where: exceptId ? { slug, id: { not: exceptId } } : { slug },
-      select: { id: true },
-    });
+  private async slugTaken(slug: string, householdId: number, exceptId?: number): Promise<boolean> {
+    const where: Record<string, unknown> = exceptId
+      ? { slug, householdId, id: { not: exceptId } }
+      : { slug, householdId };
+    const row = await this.db.recipe.findFirst({ where, select: { id: true } });
     return row !== null;
   }
 
@@ -420,6 +779,12 @@ export function buildRecipeWhere(query: RecipeQueryDto): Record<string, unknown>
   if (query.ingredientId) {
     filters.push({ ingredients: { some: { ingredientId: query.ingredientId } } });
   }
+
+  // 'mine' resolves to "my own": the catalog visibility rule already limits
+  // reads to SYSTEM_HOUSEHOLD_ID plus the caller's own, so excluding
+  // SYSTEM_HOUSEHOLD_ID here leaves only the caller's own rows.
+  if (query.scope === 'mine') filters.push({ householdId: { not: SYSTEM_HOUSEHOLD_ID } });
+  else if (query.scope === 'shared') filters.push({ householdId: SYSTEM_HOUSEHOLD_ID });
 
   return filters.length > 0 ? { AND: filters } : {};
 }

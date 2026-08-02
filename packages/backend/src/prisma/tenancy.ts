@@ -25,7 +25,6 @@ import {
 export const TENANT_SCOPED_MODELS = new Set([
   'User',
   'HouseholdAiConfig',
-  'Recipe',
   'Tag',
   'StorageLocation',
   'PantryItem',
@@ -46,7 +45,7 @@ export const TENANT_SCOPED_MODELS = new Set([
  * are the seeded global catalog, any other value is a household's own
  * addition. Reads see both; writes create household-private rows.
  */
-export const SHARED_CATALOG_MODELS = new Set(['Unit', 'Ingredient']);
+export const SHARED_CATALOG_MODELS = new Set(['Unit', 'Ingredient', 'Recipe']);
 
 /**
  * Models with no `householdId` of their own, reached only through a scoped parent
