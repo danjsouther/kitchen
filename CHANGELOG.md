@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.3.2 (2026-08-01)
+
 ### Fixed — The OFF CLIs now build `@kitchen/shared-types` before running (2026-08-01)
 
 `npm run off:import` on a deployment host died with
