@@ -4,6 +4,18 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Household data import failed on any recipe with an internal server error (2026-08-01)
+
+`POST /household-data/import` 500'd instead of restoring: `Recipe.hash` is a
+required column, computed from the recipe's content via `computeRecipeHash()`
+everywhere else a recipe is created, but the import path never called it. Every
+recipe row in an imported file hit `PrismaClientValidationError: Argument hash
+is missing`, surfaced to the client as a bare internal server error rather than
+the typed `BadRequestException` the import otherwise uses for real collisions.
+
+Import now computes the hash the same way `recipes.service.ts` does, from the
+resolved ingredient/unit ids and steps, before creating the row.
+
 ## 0.3.2 (2026-08-01)
 
 ### Fixed — The OFF CLIs now build `@kitchen/shared-types` before running (2026-08-01)

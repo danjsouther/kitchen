@@ -4,6 +4,7 @@ import { SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
 import { requireHouseholdId } from '../common/household-context';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { EXPORT_FORMAT, SCHEMA_VERSION } from './household-data.constants';
+import { computeRecipeHash } from '../recipes/recipe-hash';
 import {
   isLocalRef,
   type CategoryNaturalRef,
@@ -568,6 +569,28 @@ export class HouseholdDataService {
             tx.recipe.findFirst({ where: { slug: recipe.slug } }),
             `Import aborted: a recipe with slug "${recipe.slug}" already exists in this household.`,
           );
+          const ingredientRows = recipe.ingredients.map((line) => ({
+            sortOrder: line.sortOrder,
+            ingredientId: resolveIngredient(line.ingredient),
+            rawText: line.rawText,
+            quantity: line.quantity,
+            unitId: resolveUnit(line.unit),
+            preparation: line.preparation,
+            groupLabel: line.groupLabel,
+            optional: line.optional,
+          }));
+          const hash = computeRecipeHash({
+            title: recipe.title,
+            description: recipe.description,
+            servings: recipe.servings,
+            prepMinutes: recipe.prepMinutes,
+            cookMinutes: recipe.cookMinutes,
+            sourceUrl: recipe.sourceUrl,
+            sourceNote: recipe.sourceNote,
+            notes: recipe.notes,
+            ingredients: ingredientRows,
+            steps: recipe.steps,
+          });
           const created = await tx.recipe.create({
             data: {
               title: recipe.title,
@@ -582,18 +605,8 @@ export class HouseholdDataService {
               notes: recipe.notes,
               createdById: userId,
               archivedOn: recipe.archivedOn ? new Date(recipe.archivedOn) : null,
-              ingredients: {
-                create: recipe.ingredients.map((line) => ({
-                  sortOrder: line.sortOrder,
-                  ingredientId: resolveIngredient(line.ingredient),
-                  rawText: line.rawText,
-                  quantity: line.quantity,
-                  unitId: resolveUnit(line.unit),
-                  preparation: line.preparation,
-                  groupLabel: line.groupLabel,
-                  optional: line.optional,
-                })),
-              },
+              hash,
+              ingredients: { create: ingredientRows },
               steps: { create: recipe.steps },
               tags: {
                 create: recipe.tags.map((ref) => ({
