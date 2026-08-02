@@ -26,6 +26,14 @@ packages/backend/generated
 .env.local
 .env.*.local
 
+# The Open Food Facts dump — ~12 GB of gzipped JSONL that `npm run off:download`
+# drops here. It is git-ignored, so it is invisible until a build tries to copy
+# it and dies with "no space left on device". Nothing in the image reads it:
+# `off:import` is run by hand against a host path, and the small fixtures used by
+# tests and the seed live in packages/backend/prisma/seed/off-fixtures instead.
+packages/backend/data
+**/data/off
+
 # Local-only and irrelevant to a build.
 .git
 .gitignore

@@ -4,6 +4,19 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Keep the Open Food Facts dump out of the Docker build context (2026-08-01)
+
+A production build failed with `no space left on device` while running
+`COPY packages/backend packages/backend`. `npm run off:download` writes the
+~12 GB OFF dump to `packages/backend/data/off/`, and while `.gitignore` covers
+`/packages/backend/data/`, `.dockerignore` had no matching rule — so the dump
+was invisible in `git status` and copied into an image layer on every build.
+
+`.dockerignore` now excludes `packages/backend/data`. Nothing in the image
+needs the dump: `off:import` is run by hand against a host path, and the
+fixtures the tests and seed use live in
+`packages/backend/prisma/seed/off-fixtures/`.
+
 ## 0.3.0 (2026-08-01)
 
 ### Added — Recipe sharing, with content-hash lineage (2026-08-01)
