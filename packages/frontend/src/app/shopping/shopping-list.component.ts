@@ -16,7 +16,6 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
-import { amountWithUnit } from "../shared/format";
 import type {
   ShoppingList,
   ShoppingListItem,
@@ -108,11 +107,6 @@ import type {
 
               <div class="what">
                 <span class="name">{{ name(item) }}</span>
-                @if (item.quantity && item.unit) {
-                  <span class="muted">{{
-                    amount(item.quantity, item.unit)
-                  }}</span>
-                }
                 @if (item.brand) {
                   <span class="muted">· {{ item.brand }}</span>
                 }
@@ -139,6 +133,47 @@ import type {
                   </span>
                 }
               </div>
+
+              <mat-form-field appearance="outline" class="quantity">
+                <mat-label>Qty</mat-label>
+                <input
+                  matInput
+                  type="number"
+                  step="any"
+                  min="0"
+                  [disabled]="l.status !== 'ACTIVE'"
+                  [value]="item.quantity ?? ''"
+                  (input)="
+                    quantityDraft.set(item.id, $any($event.target).value)
+                  "
+                  (blur)="saveQuantity(item)"
+                />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="unit">
+                <mat-label>Unit</mat-label>
+                <mat-select
+                  [disabled]="l.status !== 'ACTIVE'"
+                  [value]="item.unit?.id ?? null"
+                  (valueChange)="setUnit(item, $event)"
+                >
+                  <mat-option [value]="null">—</mat-option>
+                  @for (unit of units(); track unit.id) {
+                    <mat-option [value]="unit.id">{{ unit.name }}</mat-option>
+                  }
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="note">
+                <mat-label>Note</mat-label>
+                <input
+                  matInput
+                  [disabled]="l.status !== 'ACTIVE'"
+                  [value]="item.note ?? ''"
+                  (input)="noteDraft.set(item.id, $any($event.target).value)"
+                  (blur)="saveNote(item)"
+                />
+              </mat-form-field>
 
               @if (l.status === "ACTIVE" && item.checkedOn) {
                 <mat-form-field appearance="outline" class="where">
@@ -170,6 +205,16 @@ import type {
                   [placeholder]="item.estimatedPrice ?? ''"
                 />
               </mat-form-field>
+
+              <button
+                mat-icon-button
+                class="warn-text"
+                [disabled]="l.status !== 'ACTIVE' || busy()"
+                (click)="removeItem(item)"
+                [attr.aria-label]="'Remove ' + name(item)"
+              >
+                <mat-icon>delete_outline</mat-icon>
+              </button>
             </mat-card-content>
           </mat-card>
         }
@@ -267,10 +312,22 @@ import type {
     .price {
       width: 7rem;
     }
+    .quantity {
+      width: 6rem;
+    }
+    .unit {
+      width: 7rem;
+    }
+    .note {
+      width: 10rem;
+    }
     .where {
       width: 9rem;
     }
     .price ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .quantity ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .unit ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .note ::ng-deep .mat-mdc-form-field-subscript-wrapper,
     .where ::ng-deep .mat-mdc-form-field-subscript-wrapper {
       display: none;
     }
@@ -309,11 +366,16 @@ export class ShoppingListComponent {
 
   readonly list = signal<ShoppingList | null>(null);
   readonly locations = signal<StorageLocation[]>([]);
+  readonly units = signal<Unit[]>([]);
   readonly loading = signal(true);
   readonly busy = signal(false);
 
   /** Prices typed but not yet committed, keyed by item. */
   readonly priceDraft = new Map<number, string>();
+  /** Quantities typed but not yet committed, keyed by item. */
+  readonly quantityDraft = new Map<number, string>();
+  /** Notes typed but not yet committed, keyed by item. */
+  readonly noteDraft = new Map<number, string>();
 
   /** Default put-away location. A one-off action control, not form data. */
   readonly locationId = signal<number | null>(null);
@@ -333,15 +395,12 @@ export class ShoppingListComponent {
           this.locationId.set(locations[0]?.id ?? null);
         },
       });
+      this.api.units().subscribe({ next: (units) => this.units.set(units) });
     });
   }
 
   name(item: ShoppingListItem): string {
     return item.ingredient?.name ?? item.rawName ?? "Item";
-  }
-
-  amount(quantity: string, unit: Unit | null): string {
-    return amountWithUnit(quantity, unit);
   }
 
   /** Resolved location for a checked line: override or default. */
@@ -373,6 +432,41 @@ export class ShoppingListComponent {
     this.priceDraft.delete(item.id);
     this.patch(item.id, {
       actualPrice: draft === "" ? undefined : String(draft),
+    });
+  }
+
+  /** Commits on blur rather than per keystroke — a quantity is entered, not typed at. */
+  saveQuantity(item: ShoppingListItem): void {
+    const draft = this.quantityDraft.get(item.id);
+    if (draft === undefined || draft === item.quantity) return;
+    this.quantityDraft.delete(item.id);
+    this.patch(item.id, { quantity: draft === "" ? undefined : String(draft) });
+  }
+
+  setUnit(item: ShoppingListItem, unitId: number | null): void {
+    if (unitId === (item.unit?.id ?? null)) return;
+    this.patch(item.id, { unitId: unitId ?? undefined });
+  }
+
+  /** Commits on blur rather than per keystroke — a note is entered, not typed at. */
+  saveNote(item: ShoppingListItem): void {
+    const draft = this.noteDraft.get(item.id);
+    if (draft === undefined || draft === (item.note ?? "")) return;
+    this.noteDraft.delete(item.id);
+    this.patch(item.id, { note: draft === "" ? undefined : draft });
+  }
+
+  removeItem(item: ShoppingListItem): void {
+    this.busy.set(true);
+    this.api.deleteListItem(Number(this.id()), item.id).subscribe({
+      next: (list) => {
+        this.busy.set(false);
+        this.list.set(list);
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        this.notify.error(error, "Could not remove that item.");
+      },
     });
   }
 

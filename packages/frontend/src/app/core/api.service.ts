@@ -361,6 +361,10 @@ export class ApiService {
     return this.patch<M.ShoppingList>(`/shopping-lists/${listId}/items/${itemId}`, body);
   }
 
+  deleteListItem(listId: number, itemId: number) {
+    return this.delete<M.ShoppingList>(`/shopping-lists/${listId}/items/${itemId}`);
+  }
+
   receiveList(
     listId: number,
     body: {
