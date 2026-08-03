@@ -12,7 +12,12 @@ import type { CookieOptions, Response } from 'express';
 import { SESSION_COOKIE } from './auth.constants';
 import { AuthService } from './auth.service';
 import { CurrentUser, Public } from './decorators';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import {
+  ForgotPasswordDto,
+  LoginDto,
+  RegisterDto,
+  ResetPasswordDto,
+} from './dto/auth.dto';
 import type { AuthenticatedUser } from './types';
 
 /** How long a session lasts before the user must sign in again. */
@@ -73,6 +78,34 @@ export class AuthController {
 
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): AuthenticatedUser {
+    return user;
+  }
+
+  /**
+   * Always 204, whether or not the email is registered — the response shape
+   * must not reveal which, or it becomes an enumeration oracle.
+   */
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<void> {
+    await this.auth.forgotPassword(dto.email);
+  }
+
+  /**
+   * Unlike forgot-password this legitimately sets a cookie: the user who just
+   * reset their password is signed in on the spot, under the new
+   * tokenVersion, while every other session they held is now invalid.
+   */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthenticatedUser> {
+    const user = await this.auth.resetPassword(dto.token, dto.newPassword);
+    res.cookie(SESSION_COOKIE, this.auth.signToken(user), sessionCookieOptions());
     return user;
   }
 }

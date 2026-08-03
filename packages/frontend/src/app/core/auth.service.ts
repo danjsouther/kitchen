@@ -56,6 +56,10 @@ export class AuthService {
     return this.api.register(body).pipe(tap((user) => this.currentUser.set(user)));
   }
 
+  resetPassword(body: { token: string; newPassword: string }) {
+    return this.api.resetPassword(body).pipe(tap((user) => this.currentUser.set(user)));
+  }
+
   logout() {
     this.api.logout().subscribe({
       // The cookie is cleared server-side either way; a failure here should still

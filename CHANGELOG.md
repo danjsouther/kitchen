@@ -4,6 +4,22 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Forgot-password email flow (2026-08-02)
+
+A user who forgets their password can now request a reset link from the login
+page instead of asking an admin to fix it by hand. The request always resolves
+the same way whether or not the email is registered, matching how login itself
+refuses to say which part of a credential pair was wrong, so the endpoint
+can't be used to enumerate accounts.
+
+The link carries a one-time token; only its SHA-256 hash is stored, and
+redeeming it bumps the user's `tokenVersion`, signing out every other session
+already open for that account. Outgoing mail goes through a generic SMTP relay
+(`nodemailer`), consistent with this app's bring-your-own-credentials
+approach elsewhere — a fresh clone with no `SMTP_HOST` configured logs the
+reset link to the server console instead of failing outright, so the flow
+still works end to end without an SMTP account.
+
 ## 0.3.3 (2026-08-02)
 
 ### Fixed — Household data import failed on any recipe with an internal server error (2026-08-01)

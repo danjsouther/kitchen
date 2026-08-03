@@ -12,7 +12,7 @@ import {
   submit,
   validate,
 } from "@angular/forms/signals";
-import { ActivatedRoute, Router } from "@angular/router";
+import { ActivatedRoute, Router, RouterLink } from "@angular/router";
 import { firstValueFrom } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -28,6 +28,7 @@ import { describeError } from "./notify.service";
   imports: [
     FormField,
     FormRoot,
+    RouterLink,
     MatButtonModule,
     MatCardModule,
     MatFormFieldModule,
@@ -123,6 +124,9 @@ import { describeError } from "./notify.service";
                 : "Create a new household"
             }}
           </button>
+          @if (!registering()) {
+            <a mat-button routerLink="/forgot-password">Forgot password?</a>
+          }
         </mat-card-actions>
       </mat-card>
     </div>

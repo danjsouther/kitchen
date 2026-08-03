@@ -37,3 +37,20 @@ export class LoginDto {
   @IsNotEmpty()
   password!: string;
 }
+
+export class ForgotPasswordDto {
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  @MaxLength(255)
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Reset link is missing its token.' })
+  token!: string;
+
+  @IsString()
+  @MinLength(12, { message: 'Use at least 12 characters.' })
+  @MaxLength(200)
+  newPassword!: string;
+}

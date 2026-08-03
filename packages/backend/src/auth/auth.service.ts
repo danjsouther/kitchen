@@ -1,14 +1,23 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { hash, verify } from '@node-rs/argon2';
 import { Role } from '@kitchen/shared-types';
 
 import { runUnscoped } from '../common/household-context';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  generateResetToken,
+  hashResetToken,
+  RESET_TOKEN_TTL_MS,
+} from './password-reset-token.util';
 import type { AuthenticatedUser, JwtPayload } from './types';
 
 /**
@@ -21,9 +30,13 @@ import type { AuthenticatedUser, JwtPayload } from './types';
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -103,6 +116,7 @@ export class AuthService {
       sub: user.id,
       hid: user.householdId,
       role: user.role,
+      tokenVersion: user.tokenVersion,
     };
     return this.jwt.sign(payload);
   }
@@ -110,8 +124,10 @@ export class AuthService {
   /**
    * Re-reads the user named by a token.
    *
-   * Done on every request so that disabling or deleting an account takes effect
-   * immediately, instead of when its token happens to expire.
+   * Done on every request so that disabling or deleting an account, or
+   * resetting the password, takes effect immediately instead of when the
+   * token happens to expire. A tokenVersion mismatch means this cookie was
+   * issued before the most recent password reset.
    */
   async resolveTokenUser(payload: JwtPayload): Promise<AuthenticatedUser | null> {
     const user = await runUnscoped(() =>
@@ -119,7 +135,98 @@ export class AuthService {
     );
 
     if (!user || user.disabledOn || user.deletedOn) return null;
+    if (user.tokenVersion !== payload.tokenVersion) return null;
     return this.toAuthenticatedUser(user);
+  }
+
+  /**
+   * Starts a password reset. Always resolves, whether or not the email is
+   * registered — mirroring validateCredentials()'s refusal to say which part
+   * of a login failed, so this endpoint cannot be used to enumerate accounts.
+   */
+  async forgotPassword(emailInput: string): Promise<void> {
+    const email = emailInput.trim().toLowerCase();
+
+    const user = await runUnscoped(() => this.prisma.user.findUnique({ where: { email } }));
+    if (!user || user.disabledOn || user.deletedOn) return;
+
+    // A stale link from an earlier request must not still be redeemable
+    // alongside the new one.
+    await runUnscoped(() =>
+      this.prisma.passwordResetToken.deleteMany({
+        where: { userId: user.id, usedOn: null },
+      }),
+    );
+
+    const { token, tokenHash } = generateResetToken();
+    await runUnscoped(() =>
+      this.prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresOn: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+        },
+      }),
+    );
+
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:4201';
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+
+    try {
+      await this.mail.sendPasswordResetEmail(user.email, resetUrl);
+    } catch (error) {
+      // A broken SMTP config must not turn into a different HTTP response
+      // than "email not registered" would produce.
+      this.logger.error(`Failed to send password reset email to ${user.email}`, error);
+    }
+  }
+
+  /**
+   * Redeems a reset token, setting a new password.
+   *
+   * Bumps tokenVersion in the same transaction, which invalidates every
+   * other session already issued for this user — a cookie sitting in another
+   * browser was signed with the old tokenVersion and will fail
+   * resolveTokenUser on its next request. The caller must sign a fresh
+   * cookie from the returned user so this request's own session keeps
+   * working.
+   */
+  async resetPassword(tokenInput: string, newPassword: string): Promise<AuthenticatedUser> {
+    const tokenHash = hashResetToken(tokenInput);
+
+    const record = await runUnscoped(() =>
+      this.prisma.passwordResetToken.findUnique({
+        where: { tokenHash },
+        include: { user: true },
+      }),
+    );
+
+    const invalid =
+      !record ||
+      record.usedOn !== null ||
+      record.expiresOn < new Date() ||
+      record.user.disabledOn ||
+      record.user.deletedOn;
+    if (invalid) {
+      throw new BadRequestException('This reset link is invalid or has expired.');
+    }
+
+    const passwordHash = await hash(newPassword);
+
+    const [updatedUser] = await runUnscoped(() =>
+      this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: record.user.id },
+          data: { passwordHash, tokenVersion: { increment: 1 } },
+        }),
+        this.prisma.passwordResetToken.update({
+          where: { id: record.id },
+          data: { usedOn: new Date() },
+        }),
+      ]),
+    );
+
+    return this.toAuthenticatedUser(updatedUser);
   }
 
   private toAuthenticatedUser(user: {
@@ -128,6 +235,7 @@ export class AuthService {
     role: string;
     email: string;
     displayName: string;
+    tokenVersion: number;
   }): AuthenticatedUser {
     return {
       id: user.id,
@@ -135,6 +243,7 @@ export class AuthService {
       role: user.role as Role,
       email: user.email,
       displayName: user.displayName,
+      tokenVersion: user.tokenVersion,
     };
   }
 }

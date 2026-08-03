@@ -16,9 +16,9 @@
 // Regenerate docs/ERD.md by hand when this changes — it is documentation, not a build artifact.
 
 generator client {
-  provider     = "prisma-client"
-  output       = "../generated/prisma"
-  moduleFormat = "cjs"
+  provider            = "prisma-client"
+  output              = "../generated/prisma"
+  moduleFormat        = "cjs"
   // Emit relative imports ending in .js rather than .ts. Without this the
   // generated client keeps .ts extensions after compilation and the built output
   // dies at runtime with "Cannot find module './internal/class.ts'".
@@ -133,15 +133,38 @@ model User {
   createdOn    DateTime  @default(now())
   disabledOn   DateTime?
   deletedOn    DateTime?
+  /// Bumped whenever every previously-issued session must be invalidated (e.g.
+  /// a password reset). Embedded in the JWT and checked on every request —
+  /// a mismatch means the cookie predates the bump and is rejected.
+  tokenVersion Int       @default(0)
 
-  household        Household           @relation(fields: [householdId], references: [id])
-  recipes          Recipe[]
-  pantryTx         PantryTransaction[]
-  plannedMeals     PlannedMeal[]
-  aiConfigsUpdated HouseholdAiConfig[]
+  household           Household            @relation(fields: [householdId], references: [id])
+  recipes             Recipe[]
+  pantryTx            PantryTransaction[]
+  plannedMeals        PlannedMeal[]
+  aiConfigsUpdated    HouseholdAiConfig[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([householdId])
   @@map("app_user")
+}
+
+/// A single-use, time-limited credential for setting a new password without
+/// the old one. Only the SHA-256 hash of the token is ever stored — the raw
+/// token exists only in the email and the HTTP request that redeems it, same
+/// principle as passwordHash.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  createdOn DateTime  @default(now())
+  expiresOn DateTime
+  usedOn    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_token")
 }
 
 /// Bring-your-own Anthropic key, one per household. There is deliberately no
@@ -267,7 +290,7 @@ model Product {
   nutriscoreGrade String?
   importedOn      DateTime @default(now())
 
-  packUnit          Unit?               @relation(fields: [packUnitId], references: [id])
+  packUnit          Unit?              @relation(fields: [packUnitId], references: [id])
   bindings          ProductBinding[]
   pantryItems       PantryItem[]
   shoppingListItems ShoppingListItem[]
@@ -283,7 +306,7 @@ model Product {
 /// households' overrides (global ingredients only). Writing a row here pins
 /// this household's choice; deleting it restores the consensus default.
 model ProductBinding {
-  id           Int @id @default(autoincrement())
+  id           Int    @id @default(autoincrement())
   householdId  Int
   productId    String
   ingredientId Int
@@ -570,7 +593,7 @@ model PlannedMeal {
 /// A single cooking event, grouping every deduction it caused so the whole thing
 /// can be reversed with one call.
 model CookSession {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   householdId   Int
   plannedMealId Int?
   recipeId      Int

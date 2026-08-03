@@ -7,6 +7,8 @@ export interface JwtPayload {
   /** Household id, so tenancy does not need a database round trip per request. */
   hid: number;
   role: Role;
+  /** Must match the user's current tokenVersion or the token is rejected. */
+  tokenVersion: number;
 }
 
 /** What the JWT strategy puts on `req.user`. */
@@ -16,4 +18,5 @@ export interface AuthenticatedUser {
   role: Role;
   email: string;
   displayName: string;
+  tokenVersion: number;
 }

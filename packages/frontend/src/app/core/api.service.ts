@@ -73,6 +73,15 @@ export class ApiService {
     return this.get<M.AuthUser>('/auth/me');
   }
 
+  requestPasswordReset(body: { email: string }) {
+    return this.post<void>('/auth/forgot-password', body);
+  }
+
+  /** Returns the signed-in user: the server rotates the session cookie in the same request. */
+  resetPassword(body: { token: string; newPassword: string }) {
+    return this.post<M.AuthUser>('/auth/reset-password', body);
+  }
+
   // -- Catalog -------------------------------------------------------------
 
   units() {

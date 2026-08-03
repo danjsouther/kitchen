@@ -15,6 +15,18 @@ export const routes: Routes = [
     canActivate: [guestGuard],
     loadComponent: () => import('./core/login.component').then((m) => m.LoginComponent),
   },
+  {
+    path: 'forgot-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./core/forgot-password.component').then((m) => m.ForgotPasswordComponent),
+  },
+  {
+    path: 'reset-password',
+    canActivate: [guestGuard],
+    loadComponent: () =>
+      import('./core/reset-password.component').then((m) => m.ResetPasswordComponent),
+  },
 
   {
     path: 'recipes',
