@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.4.0 (2026-08-02)
+
 ### Added — Forgot-password email flow (2026-08-02)
 
 A user who forgets their password can now request a reset link from the login
