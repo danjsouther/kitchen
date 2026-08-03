@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.3.3 (2026-08-02)
+
 ### Fixed — Household data import failed on any recipe with an internal server error (2026-08-01)
 
 `POST /household-data/import` 500'd instead of restoring: `Recipe.hash` is a
