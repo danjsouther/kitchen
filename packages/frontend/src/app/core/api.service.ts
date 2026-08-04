@@ -4,6 +4,13 @@ import type { Observable } from 'rxjs';
 
 import type * as M from './models';
 
+/** Shared by the cook endpoints and their previews — the same body either way. */
+interface CookBody {
+  servings?: number;
+  note?: string;
+  pins?: M.CookPin[];
+}
+
 /**
  * The single place the API is described.
  *
@@ -207,6 +214,7 @@ export class ApiService {
   pantry(
     query: {
       locationId?: number;
+      ingredientId?: number;
       expiringWithinDays?: number;
       q?: string;
       limit?: number;
@@ -214,6 +222,25 @@ export class ApiService {
     } = {},
   ) {
     return this.get<M.Paged<M.PantryLot>>('/pantry', query);
+  }
+
+  /**
+   * Takes an amount out of the pantry.
+   *
+   * With `lotId` or `productId` it comes out of that jar; without, out of the
+   * ingredient's lots soonest-expiry-first.
+   */
+  consume(body: {
+    ingredientId: number;
+    /** Optional only alongside `draws` — nothing needed, nothing to fall short. */
+    quantity?: string;
+    unitId: number;
+    lotId?: number;
+    productId?: string;
+    draws?: M.ExplicitDraw[];
+    note?: string;
+  }) {
+    return this.post<M.ConsumeResult>('/pantry/consume', body);
   }
 
   balances(query: { q?: string; limit?: number; offset?: number } = {}) {
@@ -279,8 +306,22 @@ export class ApiService {
     return this.delete<{ id: number }>(`/planner/${id}`);
   }
 
-  cookMeal(id: number, body: { servings?: number } = {}) {
+  cookMeal(id: number, body: CookBody = {}) {
     return this.post<M.CookReport>(`/planner/${id}/cook`, body);
+  }
+
+  /**
+   * What cooking that meal would take, without taking it.
+   *
+   * A POST because the pins shape the answer, but nothing is written — safe to
+   * call again on every change of jar.
+   */
+  previewCookMeal(id: number, body: CookBody = {}) {
+    return this.post<M.CookReport>(`/planner/${id}/cook/preview`, body);
+  }
+
+  previewCookRecipe(body: CookBody & { recipeId: number }) {
+    return this.post<M.CookReport>('/cook-sessions/preview', body);
   }
 
   undoCook(cookSessionId: number) {

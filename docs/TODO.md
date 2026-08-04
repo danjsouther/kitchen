@@ -11,7 +11,7 @@ tier.
 
 ## High
 
-- [ ] **Let deduction target a specific pantry lot/product, not just an ingredient total**
+- [x] **Let deduction target a specific pantry lot/product, not just an ingredient total**
   ```
   Today every deduction path — cooking a recipe (CookService.deduct in
   packages/backend/src/planner/cook.service.ts) and the manual "use N of this
@@ -34,6 +34,64 @@ tier.
   PantryTransaction with an optional reason. What's missing is *partial*,
   targeted deduction against one specific lot rather than the ingredient
   aggregate.
+
+  Done: `selectPinnedLots` (packages/backend/src/pantry/deduction.ts) narrows
+  the candidate set to one lot or to every lot of one product before
+  planDeduction runs — which is untouched, so shortfall/unusable reporting is
+  unchanged. Both `lotId` and `productId` are supported, mutually exclusive;
+  barcodes compare through normalizeBarcode on *both* sides, so a 12-digit
+  UPC-A scan matches the EAN-13 OFF stored. A pin matching nothing is a typed
+  failure (`pin-error.ts` maps it to 404/400) rather than an empty lot list —
+  that would have flowed through as a full shortfall and read as "you have none
+  of this" when the truth is "the jar you picked is gone". No migration:
+  PantryTransaction.pantryItemId already records the lot.
+
+  ConsumeDto gained the two fields; CookDto gained `pins[]` keyed by
+  ingredientId (mergeWithdrawals can split one ingredient across units, and the
+  cook pins a *line*). CookService.deduct was split into planFor/buildReport so
+  the new preview routes — POST /cook-sessions/preview and
+  POST /planner/:id/cook/preview — share one code path with the real cook
+  instead of a second one that could drift.
+
+  Frontend: cooking no longer fires straight off the planner menu. A new inline
+  app-cook-confirm renders the CookReport nothing previously displayed and
+  offers a per-ingredient lot picker that re-previews live. /pantry/consume got
+  its first UI at all — a "Use some" Signal Form on each lot card, with the pin
+  implicit.
+
+  Then extended past pinning, because a pin still leaves the split to the app:
+  `planExplicitDeduction` (deduction.ts) applies a division the user worked out
+  themselves, lot by lot. A `pins[]` entry gains `draws: [{lotId, quantity}]`,
+  in each **lot's own unit** — the number on the jar in front of them — and
+  ConsumeDto takes the same. `resolveSelection` (pantry/selection.ts) is the one
+  place all three modes (auto / pinned / explicit) are chosen between, so the
+  cook and pantry screens cannot drift.
+
+  Explicit draws keep the two invariants that are facts about the data rather
+  than about intent: a draw is clamped to what the lot holds (typing 900 into a
+  700 g bag records 700, never -200), and an amount that cannot be converted to
+  the request's unit is **still deducted but never counted**. That third state
+  is `DeductionPlan.unmeasured`, deliberately not folded into `unusable` —
+  every consumer renders `unusable` as "left untouched", and "I used half a cup
+  and cannot tell you what that is in grams" is neither that nor zero.
+  `Allocation.takeInRequestUnit` became nullable for the same reason.
+  ConsumeDto.quantity is now optional alongside draws: recording what was used
+  states a fact rather than filling a requirement, so nothing can fall short.
+
+  UI: the cook panel's lot picker was replaced by an amount box per lot,
+  pre-filled with the proposed split and committed on blur; editing one box
+  adopts the whole proposal so untouched lots are not silently zeroed, and
+  "Let the app choose" hands the line back. `deducted` gained `needed` and
+  `over` (computed as Decimal server-side — a displayed quantity must not go
+  through a float) so a line reads "700 g of 500 g · 200 g over". The pantry
+  balances tab gained an across-lots version.
+
+  Deliberately not done: no way to pin or split from the /cook suggestions
+  screen (it is read-only and has no deduction path); CookReport units are
+  still bare UnitDefs, with the confirm panel resolving abbreviations through
+  the unit catalog rather than adding display fields to the conversion
+  contract; and there is no per-lot ordering preference ("prefer this jar, then
+  fall back") — a draw is an amount, not a ranking.
   ```
 
 ## Medium
