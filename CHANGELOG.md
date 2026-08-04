@@ -4,6 +4,24 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Changed — A `dev` branch between features and production (2026-08-03)
+
+Work used to branch from `main` and merge straight back, which meant `main` was
+production and staging at once: nothing could ship while anything else sat
+half-finished on it. There is now a `dev` branch in between. Features branch
+from `dev` and merge back into it; `main` receives only a release merge from
+`dev` — changelog roll-up and version bump in one commit, tagged `v<version>` —
+or a `hotfix/*` branch when production cannot wait, which is then merged forward
+into `dev` so the next release does not undo it.
+
+The rules are written down in [docs/BRANCHING.md](docs/BRANCHING.md), with the
+branch protection settings that have to be applied on GitHub rather than
+committed here. A CI workflow builds all three packages and runs the tests on
+every pull request into `dev` or `main`, giving that protection a status check
+to require, and a pull request template carries the checks that this repo's
+history says are the ones that actually catch things — including driving the
+change in a browser, since every serious bug here passed the compiler first.
+
 ## 0.4.0 (2026-08-02)
 
 ### Added — Forgot-password email flow (2026-08-02)

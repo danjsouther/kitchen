@@ -9,4 +9,7 @@ root [README.md](../README.md).
   Angular 22.1 behaviours that fail silently. Read before adding a form.
 - [DEV-HTTPS.md](DEV-HTTPS.md) — mkcert setup for testing camera features
   (barcode scan) from a phone on the LAN.
+- [BRANCHING.md](BRANCHING.md) — `main`/`dev`/feature branches, the release and
+  hotfix sequences, and the branch protection settings that live on GitHub
+  rather than in the repo.
 - [TODO.md](TODO.md) — working list.

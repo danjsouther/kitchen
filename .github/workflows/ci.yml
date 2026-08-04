@@ -1,0 +1,44 @@
+name: CI
+
+# Runs on every pull request into a long-lived branch, and on pushes to those
+# branches so the badge reflects what is actually on dev/main. Branch protection
+# points at the `build-and-test` job by name — renaming the job means updating
+# the required status check on GitHub, or protection silently stops enforcing.
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    env:
+      # No database is contacted. `prisma generate` still insists the datasource
+      # env var resolves, and `packages/backend/test/no-network.ts` fails any
+      # test that opens a socket, so a placeholder is both enough and safe.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The Prisma client is gitignored (generated into
+      # packages/backend/generated/), so the backend does not compile without
+      # this step.
+      - run: npm run prisma:generate
+
+      - run: npm run build
+
+      - run: npm test

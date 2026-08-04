@@ -34,12 +34,27 @@ work landed. A version bump moves `## Unreleased` entries under a new
 version heading, in the same commit as the version files. **Tag the release
 `v<version>`** (e.g. `v0.2.0`) once that commit lands.
 
-# Merges
-- **Never merge `main` into a feature branch.** Always rebase instead.
-
 # Branches
-- `main` is the only long-lived branch. All others are short-lived feature branches.
-- always create a feature branch from `main` and rebase it onto `main` before merging back.
+Three tiers — full rules, including the release and hotfix sequences and the
+GitHub protection settings, in [docs/BRANCHING.md](../../../docs/BRANCHING.md).
+
+- `main` and `dev` are the **only** long-lived branches, and nothing is
+  committed directly to either. `main` is production: every commit on it is a
+  tagged release merge or a hotfix. `dev` is the integration line.
+- Everything else is short-lived, named `<type>/<short-kebab-summary>` with
+  `type` one of `feature`, `fix`, `chore`, `hotfix`.
+- **Branch from `dev` and merge back into `dev`** — not `main`. The one
+  exception is `hotfix/*`, which branches from `main`, merges to `main`, and is
+  then merged *forward into `dev`*. Skipping that last step reintroduces the
+  bug at the next release.
+- A release is prepared on `dev` (changelog roll-up + version bump, one commit)
+  and merged into `main` with `--no-ff`, then tagged `v<version>`.
+
+# Merges
+- **Never merge a long-lived branch into a short-lived one.** Rebase onto it
+  instead — `git rebase origin/dev`, never `git merge dev`.
+- Merges *into* `dev` and `main` are `--no-ff`, so the merge commit records
+  where the work landed.
 
 # Line endings
 `.gitattributes` pins `eol=lf` project-wide — that's a deliberate override of
