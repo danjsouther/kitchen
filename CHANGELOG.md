@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.5.0 (2026-08-03)
+
 ### Changed — A `dev` branch between features and production (2026-08-03)
 
 Work used to branch from `main` and merge straight back, which meant `main` was
