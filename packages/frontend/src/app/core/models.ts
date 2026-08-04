@@ -530,8 +530,46 @@ export interface AiConfig {
   verifiedOn: string | null;
 }
 
+/**
+ * A deduction narrowed to one lot, or to every lot of one product.
+ *
+ * Absent, an ingredient is drawn soonest-expiry-first across all of its lots.
+ */
+export interface DeductionPin {
+  lotId?: number;
+  productId?: string;
+}
+
+/** One "I used this much of this jar", in the jar's own unit. */
+export interface ExplicitDraw {
+  lotId: number;
+  quantity: string;
+}
+
+/** What the cook chose for one recipe line. */
+export interface CookPin extends DeductionPin {
+  ingredientId: number;
+  /**
+   * Exactly what came out of each lot. Present, it replaces auto-allocation
+   * and the pin fields must be absent.
+   */
+  draws?: ExplicitDraw[];
+}
+
+/**
+ * A lot that **was** deducted as instructed but could not be counted towards
+ * the need — distinct from `unusableLots`, which were left untouched.
+ */
+export interface UnmeasuredLot {
+  lotId: number;
+  unit: Unit;
+  reason: string;
+  took: string;
+}
+
 export interface CookReport {
-  cookSessionId: number;
+  /** Null on a preview — the one field that says nothing was written. */
+  cookSessionId: number | null;
   recipe: { id: number; title: string };
   servings: number;
   scaledFrom: number;
@@ -539,7 +577,14 @@ export interface CookReport {
     ingredientId: number;
     rawText: string;
     took: string;
+    /** What the recipe asked for — `took` may be under or over it. */
+    needed: string;
+    /** How much beyond `needed` was used, or "" when it was not exceeded. */
+    over: string;
     unit: Unit;
+    pinned: DeductionPin | null;
+    /** True when the cook stated the split rather than letting it be worked out. */
+    explicit: boolean;
     fromLots: Array<{ lotId: number; took: string; remaining: string }>;
   }>;
   shortfalls: Array<{
@@ -549,7 +594,22 @@ export interface CookReport {
     got: string;
     short: string;
     unit: Unit;
+    pinned: DeductionPin | null;
     unusableLots: Array<{ lotId: number; unit: Unit; reason: string }>;
+    unmeasuredLots: UnmeasuredLot[];
   }>;
   skipped: Array<{ lineId: number; rawText: string; reason: string }>;
+}
+
+export interface ConsumeResult {
+  requested: string;
+  unit: Unit;
+  pinned: DeductionPin | null;
+  applied: string;
+  shortfall: string;
+  allocations: Array<{ lotId: number; took: string; remaining: string }>;
+  /** Lots the maths could not reach — named, never folded into the shortfall. */
+  unusable: Array<{ lotId: number; unit: Unit; reason: string }>;
+  /** Deducted as instructed, but not countable towards what was needed. */
+  unmeasured: UnmeasuredLot[];
 }

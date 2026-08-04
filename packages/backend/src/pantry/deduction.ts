@@ -19,6 +19,7 @@ import {
   convert,
 } from '@kitchen/shared-types';
 
+import { normalizeBarcode } from '../off/barcode';
 import type { BalanceLot } from './pantry-balance';
 
 export interface Allocation {
@@ -27,8 +28,14 @@ export interface Allocation {
   take: Decimal;
   /** What the lot holds afterwards. Never negative. */
   remaining: Decimal;
-  /** The same amount expressed in the requested unit, for the ledger. */
-  takeInRequestUnit: Decimal;
+  /**
+   * The same amount expressed in the requested unit.
+   *
+   * Null only when a user stated this draw outright and it could not be
+   * converted: the withdrawal is real and gets written, but what it was worth
+   * against the request is genuinely unknown, and zero would be a lie.
+   */
+  takeInRequestUnit: Decimal | null;
 }
 
 export interface DeductionPlan {
@@ -37,8 +44,109 @@ export interface DeductionPlan {
   allocated: Decimal;
   /** What the pantry could not cover, in the requested unit. Zero when satisfied. */
   shortfall: Decimal;
-  /** Lots skipped because their unit could not be reconciled with the request. */
+  /**
+   * Lots skipped because their unit could not be reconciled with the request.
+   * These were **left untouched**.
+   */
   unusable: Array<{ lotId: number; unit: UnitDef; reason: ConversionFailure }>;
+  /**
+   * Lots that **were** deducted on the user's instruction but could not be
+   * counted towards the request.
+   *
+   * Deliberately not folded into `unusable`, which every consumer renders as
+   * "left alone". "I took half a cup and cannot tell you what that is in grams"
+   * is a third state, and collapsing it into either of the other two would
+   * either hide a real withdrawal or invent one.
+   */
+  unmeasured: Array<{
+    lotId: number;
+    unit: UnitDef;
+    reason: ConversionFailure;
+    took: Decimal;
+  }>;
+}
+
+/** One "I used this much of this jar", in the jar's own unit. */
+export interface ExplicitDraw {
+  lotId: number;
+  /**
+   * In the **lot's** unit, not the request's — it is the number the user was
+   * looking at on the shelf, and converting what they typed before storing it
+   * would show them back a figure they never entered.
+   */
+  quantity: Decimal.Value;
+}
+
+/**
+ * A deduction narrowed to one lot, or to every lot carrying one product.
+ *
+ * The two are mutually exclusive. `lotId` is "use *this* jar"; `productId` is
+ * "use the Barilla, whichever jar of it is oldest" — the second still spans
+ * lots and still runs soonest-expiry-first within them.
+ */
+export interface DeductionPin {
+  lotId?: number;
+  productId?: string;
+}
+
+export const PinFailure = {
+  /** Both fields given. There is no sensible intersection to guess at. */
+  BOTH_GIVEN: 'BOTH_GIVEN',
+  /** The lot is not among the ones offered — deleted, or another ingredient's. */
+  NO_SUCH_LOT: 'NO_SUCH_LOT',
+  /** No lot on offer carries that barcode. */
+  NO_SUCH_PRODUCT: 'NO_SUCH_PRODUCT',
+} as const;
+
+export type PinFailure = (typeof PinFailure)[keyof typeof PinFailure];
+
+export type PinResult<T> =
+  | { ok: true; lots: readonly T[] }
+  | { ok: false; reason: PinFailure };
+
+/**
+ * Narrows candidate lots to a pin, so a deduction can target one jar instead of
+ * the ingredient's whole shelf.
+ *
+ * An empty match is a **failure, not an empty list.** Returning zero lots would
+ * flow into `planDeduction` and come back as a full shortfall — "you have none
+ * of this" — when the truth is "the lot you pinned is gone". A stale pin has to
+ * be named, and naming it is the caller's job, so this returns a typed reason
+ * rather than throwing or guessing.
+ *
+ * Barcodes are compared **normalized on both sides**. A lot stocked from a US
+ * pack scans as 12-digit UPC-A while OFF stored the EAN-13 with its leading
+ * zero; comparing the raw strings would miss the row sitting right there.
+ */
+export function selectPinnedLots<T extends { id: number; productId?: string | null }>(
+  lots: readonly T[],
+  pin: DeductionPin | undefined,
+): PinResult<T> {
+  const lotId = pin?.lotId;
+  const productId = pin?.productId;
+
+  if (lotId !== undefined && productId !== undefined && productId !== '') {
+    return { ok: false, reason: PinFailure.BOTH_GIVEN };
+  }
+
+  if (lotId !== undefined) {
+    const found = lots.find((lot) => lot.id === lotId);
+    if (!found) return { ok: false, reason: PinFailure.NO_SUCH_LOT };
+    return { ok: true, lots: [found] };
+  }
+
+  if (productId !== undefined && productId !== '') {
+    const wanted = normalizeBarcode(productId);
+    // An unreadable barcode cannot match anything, which is the same outcome as
+    // matching nothing — report it the same way rather than inventing a reason.
+    const matched = wanted
+      ? lots.filter((lot) => normalizeBarcode(lot.productId) === wanted)
+      : [];
+    if (matched.length === 0) return { ok: false, reason: PinFailure.NO_SUCH_PRODUCT };
+    return { ok: true, lots: matched };
+  }
+
+  return { ok: true, lots };
 }
 
 /**
@@ -84,6 +192,7 @@ export function planDeduction(
       allocated: new Decimal(0),
       shortfall: new Decimal(0),
       unusable: [],
+      unmeasured: [],
     };
   }
 
@@ -131,5 +240,82 @@ export function planDeduction(
     allocated: requested.minus(shortfall),
     shortfall,
     unusable,
+    // Auto-allocation never touches a lot it could not convert, so there is
+    // never anything here — the state only arises when a user insists.
+    unmeasured: [],
   };
+}
+
+/**
+ * Applies a deduction the user worked out themselves, lot by lot.
+ *
+ * Auto-allocation answers "where should this come from?"; this answers nothing,
+ * because the user already did. "I used 300 g of the old bag and 200 g of the
+ * new one" is a statement about what happened in a kitchen, not a request for a
+ * plan, so there is no expiry ordering here and no searching for cover.
+ *
+ * What it still enforces, because these are facts about the data rather than
+ * about the user's intent:
+ *
+ *  * **No lot goes negative.** A draw is clamped to what the lot holds. Someone
+ *    typing 900 into a 700 g bag has misread the bag, and recording -200 g of
+ *    flour would poison every later sum.
+ *  * **An amount that cannot be converted is still recorded, but never
+ *    counted.** The withdrawal happened; what it was worth against the recipe
+ *    is unknown, and `unmeasured` says so rather than quietly adding zero.
+ *
+ * Draws naming a lot that is not on offer are skipped here; callers validate
+ * that first so they can name the lot in the error.
+ */
+export function planExplicitDeduction(
+  request: { quantity: Decimal.Value; unit: UnitDef },
+  draws: readonly ExplicitDraw[],
+  lots: readonly BalanceLot[],
+  physicals?: IngredientPhysicals,
+): DeductionPlan {
+  const byId = new Map(lots.map((lot) => [lot.id, lot]));
+  const allocations: Allocation[] = [];
+  const unmeasured: DeductionPlan['unmeasured'] = [];
+  let allocated = new Decimal(0);
+
+  for (const draw of draws) {
+    const lot = byId.get(draw.lotId);
+    if (!lot) continue;
+
+    const wanted = new Decimal(draw.quantity);
+    // Zero is how "leave this jar alone" is expressed, so it is not an error —
+    // it simply produces no allocation and no ledger row.
+    if (wanted.lte(0)) continue;
+
+    const held = new Decimal(lot.quantity);
+    if (held.lte(0)) continue;
+
+    const take = Decimal.min(wanted, held);
+    const takeInRequestUnit = convert(take, lot.unit, request.unit, physicals);
+
+    if (takeInRequestUnit.ok) {
+      allocated = allocated.plus(takeInRequestUnit.quantity);
+    } else {
+      unmeasured.push({
+        lotId: lot.id,
+        unit: lot.unit,
+        reason: takeInRequestUnit.reason,
+        took: take,
+      });
+    }
+
+    allocations.push({
+      lotId: lot.id,
+      take,
+      remaining: held.minus(take),
+      takeInRequestUnit: takeInRequestUnit.ok ? takeInRequestUnit.quantity : null,
+    });
+  }
+
+  const requested = new Decimal(request.quantity);
+  // Drawing more than the recipe asked for is not an error — cooks do that —
+  // so a surplus reports as no shortfall rather than a negative one.
+  const shortfall = Decimal.max(requested.minus(allocated), 0);
+
+  return { allocations, allocated, shortfall, unusable: [], unmeasured };
 }

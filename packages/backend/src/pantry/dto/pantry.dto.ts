@@ -14,6 +14,23 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+/**
+ * One "I used this much of this jar".
+ *
+ * Lives here rather than with the planner because deduction is the pantry's
+ * concern; the cook endpoints import it so both speak the same shape.
+ */
+export class ExplicitDrawDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  lotId!: number;
+
+  /** In the lot's own unit. A string, because it is a Decimal. */
+  @IsNumberString({}, { message: 'quantity must be a number.' })
+  quantity!: string;
+}
+
 export class CreateLocationDto {
   @IsString()
   @MinLength(1)
@@ -206,13 +223,54 @@ export class ConsumeDto {
   @IsPositive()
   ingredientId!: number;
 
+  /**
+   * How much was needed — what any shortfall is measured against.
+   *
+   * Optional only alongside `draws`: someone recording what they actually used
+   * is stating a fact, not filling a requirement, and there is nothing for it
+   * to fall short of.
+   */
+  @IsOptional()
   @IsNumberString({}, { message: 'quantity must be a number.' })
-  quantity!: string;
+  quantity?: string;
 
+  /** Always required: it is the unit `applied` comes back in. */
   @Type(() => Number)
   @IsInt()
   @IsPositive()
   unitId!: number;
+
+  /**
+   * Take from this lot only, instead of the ingredient's whole shelf.
+   *
+   * Mutually exclusive with `productId`; the service rejects both together
+   * rather than guessing at an intersection.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  lotId?: number;
+
+  /** Take only from lots carrying this barcode, oldest of them first. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  productId?: string;
+
+  /**
+   * Exactly what came out of each lot, in each lot's own unit.
+   *
+   * Present, it replaces auto-allocation and `lotId`/`productId` must be
+   * absent. `quantity` above stays meaningful: it is what was *needed*, which
+   * is what the shortfall is measured against.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ExplicitDrawDto)
+  draws?: ExplicitDrawDto[];
 
   @IsOptional()
   @IsString()

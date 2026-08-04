@@ -12,7 +12,8 @@ import { UnitsService, toUnitDef } from '../catalog/units.service';
 import { ProductsService } from '../products/products.service';
 import { paged, resolveLimit } from '../common/pagination';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
-import { planDeduction } from './deduction';
+import { planDeduction, planExplicitDeduction } from './deduction';
+import { resolveSelection } from './selection';
 import { balanceFor, type BalanceLot, shortfallAgainstPar } from './pantry-balance';
 import type {
   ConsumeDto,
@@ -48,6 +49,8 @@ type LotRow = {
   id: number;
   quantity: Decimal;
   expiresOn: Date | null;
+  /** The scanned barcode, when there was one. Null on most lots. */
+  productId: string | null;
   unit: { id: number; name: string; plural: string; abbrev: string | null; kind: string; toBaseFactor: Decimal };
   ingredient: { id: number; name: string; gramsPerMl: Decimal | null; gramsPerPiece: Decimal | null; defaultUnitId: number | null };
 };
@@ -385,23 +388,58 @@ export class PantryService {
    * refusing outright or driving a lot negative: if the record says 200 g and the
    * cook used 500 g, the 200 g really did leave the shelf, and the 300 g gap is
    * information the user needs rather than a reason to reject the whole request.
+   *
+   * An optional `lotId`/`productId` narrows which lots may be drawn from — "use
+   * this jar", not "use 200 g of passata from wherever". Everything after the
+   * narrowing is the ordinary path: a pinned lot holding less than asked yields
+   * an ordinary shortfall, and one with no density an ordinary `unusable` entry.
    */
   async consume(dto: ConsumeDto, userId: number) {
-    const quantity = this.parsePositive(dto.quantity, 'quantity');
+    const stated = dto.draws !== undefined && dto.draws.length > 0;
+    if (dto.quantity === undefined && !stated) {
+      throw new BadRequestException(
+        'Say how much is needed, or how much came out of each lot.',
+      );
+    }
+    // Zero when only draws were given: nothing was required, so nothing can be
+    // short. `parsePositive` still guards the case where a number was supplied.
+    const quantity =
+      dto.quantity === undefined ? '0' : this.parsePositive(dto.quantity, 'quantity');
     const ingredient = await this.requireIngredient(dto.ingredientId);
     const unitMap = await this.units.resolve([dto.unitId]);
     const unit = unitMap.get(dto.unitId)!;
 
-    const lots = (await this.db.pantryItem.findMany({
+    const all = (await this.db.pantryItem.findMany({
       where: { ingredientId: dto.ingredientId },
       include: LOT_INCLUDE,
       orderBy: { id: 'asc' },
     })) as unknown as LotRow[];
 
-    const plan = planDeduction({ quantity, unit }, toBalanceLots(lots), {
+    // The lot set is already scoped to the household by the tenant client, so a
+    // selection naming another household's lot is simply not here — a 404,
+    // which is what it should look like from the outside anyway.
+    const selected = resolveSelection(
+      all,
+      {
+        pin: { lotId: dto.lotId, productId: dto.productId },
+        draws: dto.draws,
+      },
+      ingredient.name,
+    );
+
+    const lots = selected.lots as LotRow[];
+    const need = { quantity, unit };
+    const physicals = {
       gramsPerMl: ingredient.gramsPerMl?.toString() ?? null,
       gramsPerPiece: ingredient.gramsPerPiece?.toString() ?? null,
-    });
+    };
+
+    const plan =
+      selected.kind === 'explicit'
+        ? planExplicitDeduction(need, selected.draws, toBalanceLots(lots), physicals)
+        : planDeduction(need, toBalanceLots(lots), physicals);
+
+    const pin = selected.kind === 'auto' ? selected.pin : null;
 
     await this.db.$transaction(async (tx) => {
       for (const allocation of plan.allocations) {
@@ -429,6 +467,7 @@ export class PantryService {
     return {
       requested: quantity,
       unit,
+      pinned: pin,
       applied: plan.allocated.toString(),
       shortfall: plan.shortfall.toString(),
       allocations: plan.allocations.map((a) => ({
@@ -437,8 +476,17 @@ export class PantryService {
         remaining: a.remaining.toString(),
       })),
       // Named, not hidden: these lots need a density or piece weight before the
-      // maths can reach them.
+      // maths can reach them. Untouched.
       unusable: plan.unusable,
+      // Taken as instructed, but not countable towards `requested` — a third
+      // state, and folding it into either of the others would hide a real
+      // withdrawal or invent one.
+      unmeasured: plan.unmeasured.map((entry) => ({
+        lotId: entry.lotId,
+        unit: entry.unit,
+        reason: entry.reason,
+        took: entry.took.toString(),
+      })),
     };
   }
 

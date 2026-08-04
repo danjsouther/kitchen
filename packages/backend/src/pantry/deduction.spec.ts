@@ -1,6 +1,12 @@
 import { ConversionFailure, UnitKind } from '@kitchen/shared-types';
 
-import { byExpiryThenId, planDeduction } from './deduction';
+import {
+  PinFailure,
+  byExpiryThenId,
+  planDeduction,
+  planExplicitDeduction,
+  selectPinnedLots,
+} from './deduction';
 
 const GRAM = { id: 1, name: 'gram', kind: UnitKind.MASS, toBaseFactor: '1' };
 const KILOGRAM = { id: 2, name: 'kilogram', kind: UnitKind.MASS, toBaseFactor: '1000' };
@@ -38,6 +44,243 @@ describe('byExpiryThenId', () => {
       { id: 3, quantity: 1, unit: GRAM, expiresOn: day('2026-08-01') },
     ];
     expect([...lots].sort(byExpiryThenId).map((l) => l.id)).toEqual([3, 9]);
+  });
+});
+
+describe('selectPinnedLots', () => {
+  const LOTS = [
+    { id: 1, productId: null },
+    // The same product, two jars: pinning it must keep both.
+    { id: 2, productId: '0041196010184' },
+    { id: 3, productId: '0041196010184' },
+    { id: 4, productId: '5000112637922' },
+  ];
+
+  it('returns every lot when there is no pin', () => {
+    const result = selectPinnedLots(LOTS, undefined);
+    expect(result.ok && result.lots).toEqual(LOTS);
+  });
+
+  it('treats an empty pin object as no pin', () => {
+    const result = selectPinnedLots(LOTS, {});
+    expect(result.ok && result.lots).toEqual(LOTS);
+  });
+
+  it('narrows to a single lot', () => {
+    const result = selectPinnedLots(LOTS, { lotId: 3 });
+    expect(result.ok && result.lots.map((l) => l.id)).toEqual([3]);
+  });
+
+  it('narrows to every lot carrying the product, in the order given', () => {
+    const result = selectPinnedLots(LOTS, { productId: '0041196010184' });
+    expect(result.ok && result.lots.map((l) => l.id)).toEqual([2, 3]);
+  });
+
+  // A US pack scans as 12-digit UPC-A while OFF stored the EAN-13 with its
+  // leading zero. Comparing raw strings misses a row sitting right there.
+  it('matches a UPC-A pin against an EAN-13 stored code', () => {
+    const result = selectPinnedLots(LOTS, { productId: '041196010184' });
+    expect(result.ok && result.lots.map((l) => l.id)).toEqual([2, 3]);
+  });
+
+  it('matches an EAN-13 pin against a UPC-A stored code', () => {
+    const lots = [{ id: 7, productId: '041196010184' }];
+    const result = selectPinnedLots(lots, { productId: '0041196010184' });
+    expect(result.ok && result.lots.map((l) => l.id)).toEqual([7]);
+  });
+
+  it('ignores lots that were never scanned', () => {
+    const result = selectPinnedLots(LOTS, { productId: '5000112637922' });
+    expect(result.ok && result.lots.map((l) => l.id)).toEqual([4]);
+  });
+
+  it('refuses a lot and a product together rather than guessing', () => {
+    const result = selectPinnedLots(LOTS, { lotId: 2, productId: '5000112637922' });
+    expect(result).toEqual({ ok: false, reason: PinFailure.BOTH_GIVEN });
+  });
+
+  // Reporting an empty list would flow into planDeduction and come back as a
+  // full shortfall — "you have none of this" — when the truth is "the lot you
+  // picked is gone".
+  it('names a lot that is not on offer instead of returning nothing', () => {
+    const result = selectPinnedLots(LOTS, { lotId: 99 });
+    expect(result).toEqual({ ok: false, reason: PinFailure.NO_SUCH_LOT });
+  });
+
+  it('names a product no lot carries instead of returning nothing', () => {
+    const result = selectPinnedLots(LOTS, { productId: '9999999999999' });
+    expect(result).toEqual({ ok: false, reason: PinFailure.NO_SUCH_PRODUCT });
+  });
+
+  it('treats an unreadable barcode as matching nothing', () => {
+    const result = selectPinnedLots(LOTS, { productId: 'not-a-barcode' });
+    expect(result).toEqual({ ok: false, reason: PinFailure.NO_SUCH_PRODUCT });
+  });
+
+  it('does not mutate the lots it was given', () => {
+    const lots = [...LOTS];
+    selectPinnedLots(lots, { productId: '0041196010184' });
+    expect(lots).toEqual(LOTS);
+  });
+});
+
+describe('planExplicitDeduction', () => {
+  const TWO_LOTS = [
+    { id: 1, quantity: 300, unit: GRAM, expiresOn: day('2026-08-01') },
+    { id: 2, quantity: 1000, unit: GRAM, expiresOn: day('2026-12-01') },
+  ];
+
+  it('takes exactly what was stated from each lot', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 500, unit: GRAM },
+      [
+        { lotId: 1, quantity: 200 },
+        { lotId: 2, quantity: 300 },
+      ],
+      TWO_LOTS,
+    );
+
+    expect(plan.allocations.map((a) => [a.lotId, a.take.toString(), a.remaining.toString()]))
+      .toEqual([
+        [1, '200', '100'],
+        [2, '300', '700'],
+      ]);
+    expect(plan.allocated.toString()).toBe('500');
+    expect(plan.shortfall.toString()).toBe('0');
+  });
+
+  // The whole point: the user's order is the answer, not a starting guess.
+  it('does not reorder by expiry or top up a shortfall', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 500, unit: GRAM },
+      [{ lotId: 2, quantity: 100 }],
+      TWO_LOTS,
+    );
+
+    expect(plan.allocations.map((a) => a.lotId)).toEqual([2]);
+    expect(plan.allocated.toString()).toBe('100');
+    expect(plan.shortfall.toString()).toBe('400');
+  });
+
+  it('treats a zero draw as "leave this jar alone"', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 500, unit: GRAM },
+      [
+        { lotId: 1, quantity: 0 },
+        { lotId: 2, quantity: 500 },
+      ],
+      TWO_LOTS,
+    );
+
+    expect(plan.allocations.map((a) => a.lotId)).toEqual([2]);
+  });
+
+  // Someone typing 900 into a 300 g bag has misread the bag; recording -600 g
+  // would poison every later sum.
+  it('never drives a lot negative, however much was typed', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 900, unit: GRAM },
+      [{ lotId: 1, quantity: 900 }],
+      TWO_LOTS,
+    );
+
+    expect(plan.allocations[0].take.toString()).toBe('300');
+    expect(plan.allocations[0].remaining.toString()).toBe('0');
+    expect(plan.shortfall.toString()).toBe('600');
+  });
+
+  it('converts a draw in the lot unit into the requested unit to count it', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 1500, unit: GRAM },
+      [{ lotId: 5, quantity: 1.5 }],
+      [{ id: 5, quantity: 2, unit: KILOGRAM }],
+    );
+
+    // Written back in the lot's own unit, counted in the request's.
+    expect(plan.allocations[0].take.toString()).toBe('1.5');
+    expect(plan.allocated.toString()).toBe('1500');
+    expect(plan.shortfall.toString()).toBe('0');
+  });
+
+  it('reports no shortfall when more was used than the recipe asked for', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 100, unit: GRAM },
+      [{ lotId: 1, quantity: 250 }],
+      TWO_LOTS,
+    );
+
+    expect(plan.allocated.toString()).toBe('250');
+    expect(plan.shortfall.toString()).toBe('0');
+  });
+
+  /**
+   * The decision that separates this from auto-allocation: the user watched
+   * themselves use it, so the withdrawal is real even though its worth against
+   * the request is unknowable.
+   */
+  it('records a draw it cannot convert, but does not count it', () => {
+    const lots = [{ id: 9, quantity: 2, unit: CUP }];
+    const plan = planExplicitDeduction(
+      { quantity: 100, unit: GRAM },
+      [{ lotId: 9, quantity: 0.5 }],
+      lots,
+      NO_PHYSICALS,
+    );
+
+    // Deducted.
+    expect(plan.allocations).toEqual([
+      expect.objectContaining({ lotId: 9 }),
+    ]);
+    expect(plan.allocations[0].take.toString()).toBe('0.5');
+    expect(plan.allocations[0].remaining.toString()).toBe('1.5');
+    // Not counted, and not silently zero either.
+    expect(plan.allocations[0].takeInRequestUnit).toBeNull();
+    expect(plan.allocated.toString()).toBe('0');
+    expect(plan.shortfall.toString()).toBe('100');
+    expect(plan.unmeasured).toEqual([
+      expect.objectContaining({ lotId: 9, reason: ConversionFailure.NO_DENSITY }),
+    ]);
+    expect(plan.unmeasured[0].took.toString()).toBe('0.5');
+    // `unusable` means "left alone" everywhere else and must keep meaning that.
+    expect(plan.unusable).toEqual([]);
+  });
+
+  it('counts a convertible draw beside an unmeasurable one', () => {
+    const lots = [
+      { id: 9, quantity: 2, unit: CUP },
+      { id: 10, quantity: 500, unit: GRAM },
+    ];
+    const plan = planExplicitDeduction(
+      { quantity: 300, unit: GRAM },
+      [
+        { lotId: 9, quantity: 1 },
+        { lotId: 10, quantity: 200 },
+      ],
+      lots,
+      NO_PHYSICALS,
+    );
+
+    expect(plan.allocations).toHaveLength(2);
+    expect(plan.allocated.toString()).toBe('200');
+    expect(plan.shortfall.toString()).toBe('100');
+    expect(plan.unmeasured.map((u) => u.lotId)).toEqual([9]);
+  });
+
+  it('ignores a draw naming a lot that is not on offer', () => {
+    const plan = planExplicitDeduction(
+      { quantity: 500, unit: GRAM },
+      [{ lotId: 99, quantity: 100 }],
+      TWO_LOTS,
+    );
+    expect(plan.allocations).toEqual([]);
+  });
+
+  it('does not mutate its inputs', () => {
+    const lots = TWO_LOTS.map((l) => ({ ...l }));
+    const draws = [{ lotId: 1, quantity: 200 }];
+    planExplicitDeduction({ quantity: 500, unit: GRAM }, draws, lots);
+    expect(lots).toEqual(TWO_LOTS);
+    expect(draws).toEqual([{ lotId: 1, quantity: 200 }]);
   });
 });
 
@@ -83,7 +326,8 @@ describe('planDeduction', () => {
     // Stored in kilograms, so the lot is written back in kilograms.
     expect(plan.allocations[0].take.toString()).toBe('1.5');
     expect(plan.allocations[0].remaining.toString()).toBe('0.5');
-    expect(plan.allocations[0].takeInRequestUnit.toString()).toBe('1500');
+    // Never null from auto-allocation: it skips what it cannot convert.
+    expect(plan.allocations[0].takeInRequestUnit?.toString()).toBe('1500');
   });
 
   it('bridges kinds when the ingredient has a density', () => {

@@ -22,6 +22,38 @@ to require, and a pull request template carries the checks that this repo's
 history says are the ones that actually catch things — including driving the
 change in a browser, since every serious bug here passed the compiler first.
 
+### Added — Choose which pantry lots a deduction comes from (2026-08-03)
+
+Deducting an ingredient used to take a quantity and nothing else: every lot of
+that ingredient went into one pool and was drawn down soonest-expiry-first.
+That is still the default, and still the right one, but there was no way to say
+"use *this* jar — the one I just opened", let alone "I used 300 g of the old
+bag and half of the new one".
+
+Both are now possible. A deduction can be pinned to a single lot or to every
+lot carrying one barcode, or given an exact amount per lot, on the cook flow
+and on the manual "use some of this" flow alike. Pinning by barcode still spans
+several lots of that product, oldest first; pinning to one lot deliberately
+does not spill onto another if it runs short, since drawing from a jar the cook
+did not name is the one outcome they ruled out.
+
+Cooking a planned meal no longer fires straight off the menu. It opens a
+confirmation showing what will come out of each lot, with the amounts editable
+— pre-filled with what the app was going to do, so correcting it is typing over
+a number rather than starting from nothing. The report this screen renders (what
+was taken, what fell short, what was skipped) was always returned by the server
+and never previously shown anywhere. The pantry's balances tab gained the same
+across-lots editor, and each individual lot a "use some of this one" form; the
+consume endpoint had no interface at all before this.
+
+Amounts are entered in each lot's own unit — the figure on the jar in front of
+you — and a lot can be measured in grams while the recipe asks for cups. Three
+outcomes are kept distinct rather than collapsed into a shortfall: stock that
+was taken, stock that could not be measured and so was left alone, and stock
+that was taken on the cook's word but could not be counted towards the recipe.
+The last is new, and exists because refusing to record a withdrawal someone
+watched themselves make would leave their pantry quietly wrong.
+
 ### Added — Delete a shopping list (2026-08-02)
 
 A shopping list can now be deleted from the "Your lists" screen with a single

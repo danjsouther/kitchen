@@ -15,8 +15,9 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { CookConfirmComponent } from "./cook-confirm.component";
 import { PlanMealFormComponent } from "./plan-meal-form.component";
-import type { PlannedMeal } from "../core/models";
+import type { CookReport, PlannedMeal } from "../core/models";
 
 const SLOTS = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"] as const;
 type Slot = (typeof SLOTS)[number];
@@ -26,6 +27,7 @@ type Slot = (typeof SLOTS)[number];
   imports: [
     DatePipe,
     RouterLink,
+    CookConfirmComponent,
     PlanMealFormComponent,
     MatButtonModule,
     MatCardModule,
@@ -70,6 +72,14 @@ type Slot = (typeof SLOTS)[number];
           [slot]="cell.slot"
           (saved)="onSaved()"
           (cancelled)="adding.set(null)"
+        />
+      }
+
+      @if (confirming(); as meal) {
+        <app-cook-confirm
+          [meal]="meal"
+          (cooked)="onCooked($event)"
+          (cancelled)="confirming.set(null)"
         />
       }
 
@@ -151,7 +161,8 @@ type Slot = (typeof SLOTS)[number];
 
       <p class="muted small">
         Cooking a meal deducts its ingredients from the pantry, soonest-expiry
-        first, and can be undone.
+        first. You get to see what it will take from each lot — and type in what
+        you actually used — before it happens, and it can be undone afterwards.
       </p>
     </div>
   `,
@@ -271,6 +282,9 @@ export class PlanComponent {
   /** The cell the add form is filling, or null when it is closed. */
   readonly adding = signal<{ date: string; slot: Slot } | null>(null);
 
+  /** The meal awaiting a look at its deduction before it is committed. */
+  readonly confirming = signal<PlannedMeal | null>(null);
+
   readonly days = computed(() => {
     const start = this.weekStart();
     return Array.from({ length: 7 }, (_, offset) => addDays(start, offset));
@@ -340,22 +354,29 @@ export class PlanComponent {
     return open?.id ?? null;
   }
 
+  /**
+   * Opens the confirmation rather than deducting straight away.
+   *
+   * A deduction spans several lots and is not reversible in the cook's head, so
+   * it is worth seeing which jars it will come out of — and changing them —
+   * before it happens.
+   */
   cook(meal: PlannedMeal): void {
-    this.api.cookMeal(meal.id).subscribe({
-      next: (report) => {
-        const short = report.shortfalls.length;
-        // A shortfall is reported rather than treated as a failure: the pantry
-        // gave what it had, and the gap is something the cook needs to know.
-        this.notify.success(
-          short
-            ? `Cooked. ${short} ingredient${short === 1 ? " was" : "s were"} short — check the pantry.`
-            : "Cooked, and the pantry has been updated.",
-        );
-        this.load();
-      },
-      error: (error: unknown) =>
-        this.notify.error(error, "Could not cook that meal."),
-    });
+    this.adding.set(null);
+    this.confirming.set(meal);
+  }
+
+  onCooked(report: CookReport): void {
+    this.confirming.set(null);
+    const short = report.shortfalls.length;
+    // A shortfall is reported rather than treated as a failure: the pantry gave
+    // what it had, and the gap is something the cook needs to know.
+    this.notify.success(
+      short
+        ? `Cooked. ${short} ingredient${short === 1 ? " was" : "s were"} short — check the pantry.`
+        : "Cooked, and the pantry has been updated.",
+    );
+    this.load();
   }
 
   undo(sessionId: number): void {
