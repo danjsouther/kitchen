@@ -15,6 +15,54 @@ license: MIT
 - Prefer a new commit over `--amend` once a commit has left your hands (pushed,
   or reviewed) — amending rewrites history someone else may already have.
 
+## Writing the message without mangling it
+This repo is worked on from two shells with incompatible quoting — Git Bash
+(POSIX `sh`) and PowerShell. A multi-line message quoted for the wrong one does
+not fail; it commits, with the quoting characters embedded in the message. A
+PowerShell here-string (`@'…'@`) run through Bash has produced a commit whose
+subject line was a bare `@`, with a second `@` after the trailer.
+
+**Pipe the message in on stdin, using the form that matches the shell you are
+actually calling** — never `-m` with a multi-line string:
+
+```bash
+# Bash tool — quoted heredoc ('EOF'), so $ and ` stay literal
+git commit -F - <<'EOF'
+Subject line here.
+
+Co-Authored-By: …
+EOF
+```
+
+```powershell
+# PowerShell tool — single-quoted here-string PIPED in; closing '@ at column 0
+@'
+Subject line here.
+
+Co-Authored-By: …
+'@ | git commit -F -
+```
+
+The pipe is not optional. `git commit -F - @'…'@` puts the here-string in
+`argv`, where `git` reads it as a pathspec and fails with "did not match any
+file(s) known to git" — `-F -` only ever reads stdin.
+
+Either shell can also take `-F <file>`, which is the safest option for a long
+message: write it with the Write tool, then point `git commit` at it.
+
+**Then read it back**, with line ends made visible — `git log -1 --format=%B`
+alone renders a stray `@` or a swallowed newline as ordinary-looking text:
+
+```bash
+git log -1 --format=%B | cat -A                          # Bash
+```
+```powershell
+git log -1 --format=%B | ForEach-Object { "[$_]" }       # PowerShell (no cat -A)
+```
+
+Fix a bad message with `--amend` *while the commit is still local* — see the
+rule above about commits that have left your hands.
+
 ## Changelog entries
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html): newest-first
