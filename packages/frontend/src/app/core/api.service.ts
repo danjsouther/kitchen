@@ -345,6 +345,10 @@ export class ApiService {
     return this.get<M.ShoppingList>(`/shopping-lists/${id}`);
   }
 
+  archiveList(id: number) {
+    return this.delete<M.ShoppingList>(`/shopping-lists/${id}`);
+  }
+
   generateList(body: { from: string; to: string; storeId?: number }) {
     return this.post<M.Proposal>('/shopping-lists/generate', body);
   }
@@ -359,6 +363,10 @@ export class ApiService {
 
   updateListItem(listId: number, itemId: number, body: unknown) {
     return this.patch<M.ShoppingList>(`/shopping-lists/${listId}/items/${itemId}`, body);
+  }
+
+  deleteListItem(listId: number, itemId: number) {
+    return this.delete<M.ShoppingList>(`/shopping-lists/${listId}/items/${itemId}`);
   }
 
   receiveList(

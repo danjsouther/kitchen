@@ -212,6 +212,17 @@ const PAGE_LIMIT = 20;
             <span class="status" [class.done]="list.status !== 'ACTIVE'">
               {{ list.status.toLowerCase() }}
             </span>
+            @if (list.status !== "ARCHIVED") {
+              <button
+                mat-icon-button
+                class="warn-text"
+                [disabled]="listBusy()"
+                (click)="deleteList(list, $event)"
+                [attr.aria-label]="'Delete ' + list.name"
+              >
+                <mat-icon>delete_outline</mat-icon>
+              </button>
+            }
           </mat-card-content>
         </mat-card>
       }
@@ -308,6 +319,7 @@ export class ShoppingComponent {
   readonly stores = signal<Store[]>([]);
   readonly proposal = signal<Proposal | null>(null);
   readonly busy = signal(false);
+  readonly listBusy = signal(false);
 
   /**
    * The date range and store that drive list generation.
@@ -373,6 +385,22 @@ export class ShoppingComponent {
   onListPageChange(offset: number): void {
     this.listOffset.set(offset);
     this.loadLists();
+  }
+
+  /** Archives rather than truly deletes — the list stays visible under the Archived filter. */
+  deleteList(list: ShoppingListSummary, event: Event): void {
+    event.stopPropagation();
+    this.listBusy.set(true);
+    this.api.archiveList(list.id).subscribe({
+      next: () => {
+        this.listBusy.set(false);
+        this.loadLists();
+      },
+      error: (error: unknown) => {
+        this.listBusy.set(false);
+        this.notify.error(error, "Could not delete that list.");
+      },
+    });
   }
 
   private loadLists(): void {

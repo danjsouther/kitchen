@@ -22,6 +22,24 @@ to require, and a pull request template carries the checks that this repo's
 history says are the ones that actually catch things — including driving the
 change in a browser, since every serious bug here passed the compiler first.
 
+### Added — Delete a shopping list (2026-08-02)
+
+A shopping list can now be deleted from the "Your lists" screen with a single
+click, no confirmation dialog — the same immediate-delete pattern used
+elsewhere in the app. It archives rather than truly removes the row (the
+existing `DELETE /shopping-lists/:id` endpoint already did this, just had no
+frontend caller): an archived list drops out of the Active filter but still
+shows under Archived, so nothing is silently lost.
+
+### Added — Edit and delete shopping list items (2026-08-02)
+
+A shopping list item's quantity, unit, and note can now be changed inline on
+the list screen, the same draft-on-blur pattern already used for the paid
+price, and an item can be removed from the list entirely with a single click
+— no confirmation dialog, matching how the pantry's discard button already
+works. Both use REST endpoints (`PATCH`/`DELETE /shopping-lists/:id/items/:itemId`)
+that already existed on the backend; only the frontend was missing the UI.
+
 ## 0.4.0 (2026-08-02)
 
 ### Added — Forgot-password email flow (2026-08-02)
