@@ -103,6 +103,13 @@ GitHub protection settings, in [docs/BRANCHING.md](../../../docs/BRANCHING.md).
   instead — `git rebase origin/dev`, never `git merge dev`.
 - Merges *into* `dev` and `main` are `--no-ff`, so the merge commit records
   where the work landed.
+- **When merging a PR via `gh pr merge`, always pass `-t`/`--subject`** with a
+  message in the same style as [Commits](#commits) above (sentence case,
+  outcome not mechanism, ending in a period) — never the default "Merge pull
+  request #N from owner/branch". Example:
+  `gh pr merge 12 --merge -t "Let a shopper delete a shopping list from the list screen."`
+  A release-sync PR (e.g. `main` → `dev` to fast-forward after a release) is the
+  one exception — its default title is already descriptive enough.
 
 # Line endings
 `.gitattributes` pins `eol=lf` project-wide — that's a deliberate override of
