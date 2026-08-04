@@ -4,6 +4,76 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.5.0 (2026-08-03)
+
+### Changed — A `dev` branch between features and production (2026-08-03)
+
+Work used to branch from `main` and merge straight back, which meant `main` was
+production and staging at once: nothing could ship while anything else sat
+half-finished on it. There is now a `dev` branch in between. Features branch
+from `dev` and merge back into it; `main` receives only a release merge from
+`dev` — changelog roll-up and version bump in one commit, tagged `v<version>` —
+or a `hotfix/*` branch when production cannot wait, which is then merged forward
+into `dev` so the next release does not undo it.
+
+The rules are written down in [docs/BRANCHING.md](docs/BRANCHING.md), with the
+branch protection settings that have to be applied on GitHub rather than
+committed here. A CI workflow builds all three packages and runs the tests on
+every pull request into `dev` or `main`, giving that protection a status check
+to require, and a pull request template carries the checks that this repo's
+history says are the ones that actually catch things — including driving the
+change in a browser, since every serious bug here passed the compiler first.
+
+### Added — Choose which pantry lots a deduction comes from (2026-08-03)
+
+Deducting an ingredient used to take a quantity and nothing else: every lot of
+that ingredient went into one pool and was drawn down soonest-expiry-first.
+That is still the default, and still the right one, but there was no way to say
+"use *this* jar — the one I just opened", let alone "I used 300 g of the old
+bag and half of the new one".
+
+Both are now possible. A deduction can be pinned to a single lot or to every
+lot carrying one barcode, or given an exact amount per lot, on the cook flow
+and on the manual "use some of this" flow alike. Pinning by barcode still spans
+several lots of that product, oldest first; pinning to one lot deliberately
+does not spill onto another if it runs short, since drawing from a jar the cook
+did not name is the one outcome they ruled out.
+
+Cooking a planned meal no longer fires straight off the menu. It opens a
+confirmation showing what will come out of each lot, with the amounts editable
+— pre-filled with what the app was going to do, so correcting it is typing over
+a number rather than starting from nothing. The report this screen renders (what
+was taken, what fell short, what was skipped) was always returned by the server
+and never previously shown anywhere. The pantry's balances tab gained the same
+across-lots editor, and each individual lot a "use some of this one" form; the
+consume endpoint had no interface at all before this.
+
+Amounts are entered in each lot's own unit — the figure on the jar in front of
+you — and a lot can be measured in grams while the recipe asks for cups. Three
+outcomes are kept distinct rather than collapsed into a shortfall: stock that
+was taken, stock that could not be measured and so was left alone, and stock
+that was taken on the cook's word but could not be counted towards the recipe.
+The last is new, and exists because refusing to record a withdrawal someone
+watched themselves make would leave their pantry quietly wrong.
+
+### Added — Delete a shopping list (2026-08-02)
+
+A shopping list can now be deleted from the "Your lists" screen with a single
+click, no confirmation dialog — the same immediate-delete pattern used
+elsewhere in the app. It archives rather than truly removes the row (the
+existing `DELETE /shopping-lists/:id` endpoint already did this, just had no
+frontend caller): an archived list drops out of the Active filter but still
+shows under Archived, so nothing is silently lost.
+
+### Added — Edit and delete shopping list items (2026-08-02)
+
+A shopping list item's quantity, unit, and note can now be changed inline on
+the list screen, the same draft-on-blur pattern already used for the paid
+price, and an item can be removed from the list entirely with a single click
+— no confirmation dialog, matching how the pantry's discard button already
+works. Both use REST endpoints (`PATCH`/`DELETE /shopping-lists/:id/items/:itemId`)
+that already existed on the backend; only the frontend was missing the UI.
+
 ## 0.4.0 (2026-08-02)
 
 ### Added — Forgot-password email flow (2026-08-02)

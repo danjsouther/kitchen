@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -63,6 +64,18 @@ export class PlannerController {
   ) {
     return this.cook.cook(id, dto, userId);
   }
+
+  /**
+   * What that cook would take, without taking it.
+   *
+   * A POST because it carries the pins that shape the answer, but it writes
+   * nothing — the cook screen calls it again on every change of jar.
+   */
+  @HttpCode(200)
+  @Post(':id/cook/preview')
+  previewMeal(@Param('id', ParseIntPipe) id: number, @Body() dto: CookDto) {
+    return this.cook.previewMeal(id, dto);
+  }
 }
 
 @Controller('cook-sessions')
@@ -78,6 +91,13 @@ export class CookSessionsController {
   @Post()
   cookRecipe(@Body() dto: CookRecipeDto, @CurrentUser('id') userId: number) {
     return this.cook.cookRecipe(dto.recipeId, dto, userId);
+  }
+
+  /** The same, without writing anything. */
+  @HttpCode(200)
+  @Post('preview')
+  preview(@Body() dto: CookRecipeDto) {
+    return this.cook.previewRecipe(dto.recipeId, dto);
   }
 
   /** Puts every deducted amount back and marks the session reversed. */

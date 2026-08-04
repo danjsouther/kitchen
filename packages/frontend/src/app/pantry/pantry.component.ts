@@ -18,6 +18,8 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { trimQuantity, unitLabel } from "../shared/format";
 import { PagerComponent } from "../shared/pager.component";
+import { ConsumeFormComponent } from "./consume-form.component";
+import { ConsumeIngredientComponent } from "./consume-ingredient.component";
 import { PantryItemFormComponent } from "./pantry-item-form.component";
 import { ScanQueueComponent } from "./scan-queue.component";
 import type { Balance, PantryLot, StorageLocation, Unit } from "../core/models";
@@ -32,6 +34,8 @@ const EXPIRY_SOON_DAYS = 7;
   imports: [
     DatePipe,
     RouterLink,
+    ConsumeFormComponent,
+    ConsumeIngredientComponent,
     PagerComponent,
     PantryItemFormComponent,
     ScanQueueComponent,
@@ -104,6 +108,23 @@ const EXPIRY_SOON_DAYS = 7;
         />
       }
 
+      @if (consuming(); as lot) {
+        <app-consume-form
+          [lot]="lot"
+          [units]="units()"
+          (saved)="onSaved()"
+          (cancelled)="closeForm()"
+        />
+      }
+
+      @if (consumingIngredient(); as balance) {
+        <app-consume-ingredient
+          [balance]="balance"
+          (saved)="onSaved()"
+          (cancelled)="closeForm()"
+        />
+      }
+
       @if (scanningQueue()) {
         <app-scan-queue
           [units]="units()"
@@ -154,10 +175,22 @@ const EXPIRY_SOON_DAYS = 7;
                       <span class="muted">not countable</span>
                     }
                   </div>
-                  <div class="muted small">
-                    across {{ balance.lotCount }} lot{{
-                      balance.lotCount === 1 ? "" : "s"
-                    }}
+                  <div class="row muted small">
+                    <span class="grow">
+                      across {{ balance.lotCount }} lot{{
+                        balance.lotCount === 1 ? "" : "s"
+                      }}
+                    </span>
+                    @if (balance.lotCount > 0) {
+                      <button
+                        mat-button
+                        class="use-across"
+                        (click)="startConsumeIngredient(balance)"
+                      >
+                        <mat-icon>remove_circle_outline</mat-icon>
+                        Use some
+                      </button>
+                    }
                   </div>
 
                   @for (bad of balance.unconvertible; track bad.lotId) {
@@ -238,6 +271,19 @@ const EXPIRY_SOON_DAYS = 7;
                     <span class="amount">
                       {{ round(lot.quantity) }} {{ lotUnit(lot) }}
                     </span>
+                    <!--
+                      Inside a card whose whole body opens the editor, so the
+                      click must be stopped from reaching it.
+                    -->
+                    <button
+                      mat-icon-button
+                      class="use-some"
+                      matTooltip="Use some of this lot"
+                      aria-label="Use some of this lot"
+                      (click)="startConsume(lot, $event)"
+                    >
+                      <mat-icon>remove_circle_outline</mat-icon>
+                    </button>
                   </div>
                   <div class="row small muted">
                     <span>{{ lot.location.name }}</span>
@@ -298,6 +344,15 @@ const EXPIRY_SOON_DAYS = 7;
     .lot {
       cursor: pointer;
     }
+    .use-some {
+      --mdc-icon-button-state-layer-size: 2rem;
+      margin: -.35rem -.5rem -.35rem .25rem;
+    }
+    .use-across {
+      --mat-button-text-container-height: 1.75rem;
+      font-size: .8rem;
+      margin: -.25rem -.5rem -.25rem 0;
+    }
     .fix {
       font-size: 0.8rem;
       white-space: nowrap;
@@ -333,6 +388,10 @@ export class PantryComponent {
   readonly locations = signal<StorageLocation[]>([]);
   readonly adding = signal(false);
   readonly editing = signal<PantryLot | null>(null);
+  /** The lot being partly used up, if any — a different action from editing it. */
+  readonly consuming = signal<PantryLot | null>(null);
+  /** The ingredient being used across several of its lots at once. */
+  readonly consumingIngredient = signal<Balance | null>(null);
   readonly scanningQueue = signal(false);
   readonly resumeInStocking = signal(false);
   /** Count only — the queue's own contents are loaded by app-scan-queue itself. */
@@ -371,17 +430,43 @@ export class PantryComponent {
 
   startAdd(): void {
     this.editing.set(null);
+    this.consuming.set(null);
     this.adding.set(true);
   }
 
   startEdit(lot: PantryLot): void {
     this.adding.set(false);
+    this.consuming.set(null);
     this.editing.set(lot);
+  }
+
+  /**
+   * Opens the partial-use form for one lot.
+   *
+   * Stops the click reaching the card, whose whole body opens the editor —
+   * without this, using some of a lot would open two forms at once.
+   */
+  startConsume(lot: PantryLot, event: Event): void {
+    event.stopPropagation();
+    this.adding.set(false);
+    this.editing.set(null);
+    this.consumingIngredient.set(null);
+    this.consuming.set(lot);
+  }
+
+  /** Uses several lots of one ingredient at once, with an amount for each. */
+  startConsumeIngredient(balance: Balance): void {
+    this.adding.set(false);
+    this.editing.set(null);
+    this.consuming.set(null);
+    this.consumingIngredient.set(balance);
   }
 
   closeForm(): void {
     this.adding.set(false);
     this.editing.set(null);
+    this.consuming.set(null);
+    this.consumingIngredient.set(null);
   }
 
   startScanQueue(): void {

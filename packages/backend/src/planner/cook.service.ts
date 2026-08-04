@@ -9,11 +9,31 @@ import Decimal from 'decimal.js';
 import { PlanStatus, TxKind } from '@kitchen/shared-types';
 
 import { toUnitDef } from '../catalog/units.service';
-import { planDeduction } from '../pantry/deduction';
+import {
+  planDeduction,
+  planExplicitDeduction,
+  type DeductionPin,
+  type DeductionPlan,
+  type ExplicitDraw,
+} from '../pantry/deduction';
+import { resolveSelection, type Selection } from '../pantry/selection';
 import type { BalanceLot } from '../pantry/pantry-balance';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
-import { mergeWithdrawals, planCook, type CookLine } from './cook-plan';
+import { mergeWithdrawals, planCook, type CookLine, type Withdrawal } from './cook-plan';
 import type { CookDto } from './dto/planner.dto';
+
+/**
+ * "For this ingredient, use this jar."
+ *
+ * Keyed by ingredient rather than by withdrawal because `mergeWithdrawals`
+ * splits one ingredient into several withdrawals when a recipe asks for it in
+ * two units, and the cook is pinning a jar to a *line*, not to a unit.
+ */
+export type CookPin = DeductionPin & {
+  ingredientId: number;
+  /** Exactly what came out of each lot, when the cook worked it out themselves. */
+  draws?: ReadonlyArray<{ lotId: number; quantity: string }>;
+};
 
 @Injectable()
 export class CookService {
@@ -33,29 +53,13 @@ export class CookService {
    *    a single operation rather than a dozen partial reversals.
    */
   async cook(plannedMealId: number, dto: CookDto, userId: number) {
-    const meal = await this.db.plannedMeal.findFirst({
-      where: { id: plannedMealId },
-      select: { id: true, recipeId: true, servings: true, status: true, note: true },
-    });
-    if (!meal) throw new NotFoundException(`No planned meal with id ${plannedMealId}.`);
-
-    if (meal.recipeId === null) {
-      throw new BadRequestException(
-        `"${meal.note ?? 'That entry'}" is a note, not a recipe, so there is ` +
-          'nothing to deduct from the pantry.',
-      );
-    }
-    if (meal.status === PlanStatus.COOKED) {
-      throw new ConflictException(
-        'That meal is already marked cooked. Undo the cook session first if you ' +
-          'want to deduct it again.',
-      );
-    }
+    const meal = await this.requireCookableMeal(plannedMealId);
 
     const servings = dto.servings ?? meal.servings;
-    const report = await this.deduct(meal.recipeId, servings, userId, {
+    const report = await this.deduct(meal.recipeId!, servings, userId, {
       plannedMealId: meal.id,
       note: dto.note,
+      pins: dto.pins,
     });
 
     await this.db.plannedMeal.update({
@@ -76,15 +80,72 @@ export class CookService {
 
     return this.deduct(recipeId, dto.servings ?? recipe.servings, userId, {
       note: dto.note,
+      pins: dto.pins,
     });
   }
 
-  private async deduct(
-    recipeId: number,
-    servings: number,
-    userId: number,
-    context: { plannedMealId?: number; note?: string },
-  ) {
+  /**
+   * Works out what cooking *would* take, and writes nothing.
+   *
+   * The cook screen needs this to be honest about the split before anyone
+   * commits: which jar each line comes out of, what is short, what could not be
+   * measured. It shares `planFor` with the real thing rather than reimplementing
+   * it, so what the user approves is what actually happens.
+   */
+  async previewMeal(plannedMealId: number, dto: CookDto) {
+    const meal = await this.requireCookableMeal(plannedMealId);
+    const planned = await this.planFor(
+      meal.recipeId!,
+      dto.servings ?? meal.servings,
+      dto.pins,
+    );
+    return this.buildReport(planned, null);
+  }
+
+  /** The same preview for a recipe that is not on the calendar. */
+  async previewRecipe(recipeId: number, dto: CookDto) {
+    const recipe = await this.db.recipe.findFirst({
+      where: { id: recipeId },
+      select: { id: true, servings: true },
+    });
+    if (!recipe) throw new NotFoundException(`No recipe with id ${recipeId}.`);
+
+    const planned = await this.planFor(recipeId, dto.servings ?? recipe.servings, dto.pins);
+    return this.buildReport(planned, null);
+  }
+
+  private async requireCookableMeal(plannedMealId: number) {
+    const meal = await this.db.plannedMeal.findFirst({
+      where: { id: plannedMealId },
+      select: { id: true, recipeId: true, servings: true, status: true, note: true },
+    });
+    if (!meal) throw new NotFoundException(`No planned meal with id ${plannedMealId}.`);
+
+    if (meal.recipeId === null) {
+      throw new BadRequestException(
+        `"${meal.note ?? 'That entry'}" is a note, not a recipe, so there is ` +
+          'nothing to deduct from the pantry.',
+      );
+    }
+    if (meal.status === PlanStatus.COOKED) {
+      throw new ConflictException(
+        'That meal is already marked cooked. Undo the cook session first if you ' +
+          'want to deduct it again.',
+      );
+    }
+
+    return meal;
+  }
+
+  /**
+   * Everything up to the point of writing: what the recipe needs, what the
+   * pantry holds, and which lots each line would come out of.
+   *
+   * Split out from `deduct` so the preview and the real cook cannot drift. A
+   * preview computed by a second code path would eventually promise one thing
+   * and do another, which is worse than having no preview at all.
+   */
+  private async planFor(recipeId: number, servings: number, pins?: readonly CookPin[]) {
     const recipe = await this.db.recipe.findFirst({
       where: { id: recipeId },
       select: {
@@ -101,6 +162,7 @@ export class CookService {
 
     const plan = planCook(toCookLines(recipe.ingredients), recipe.servings, servings);
     const withdrawals = mergeWithdrawals(plan.withdrawals);
+    const pinByIngredient = indexPins(pins);
 
     // One query for every lot involved, rather than one per line.
     const lots = await this.db.pantryItem.findMany({
@@ -108,6 +170,12 @@ export class CookService {
       include: { unit: true },
       orderBy: { id: 'asc' },
     });
+
+    const nameByIngredient = new Map(
+      recipe.ingredients
+        .filter((line) => line.ingredient !== null)
+        .map((line) => [line.ingredient!.id, line.ingredient!.name]),
+    );
 
     const physicalsByIngredient = new Map(
       recipe.ingredients
@@ -122,26 +190,56 @@ export class CookService {
     );
 
     const deductions = withdrawals.map((withdrawal) => {
-      const relevant: BalanceLot[] = lots
-        .filter((lot) => lot.ingredientId === withdrawal.ingredientId)
-        .map((lot) => ({
-          id: lot.id,
-          quantity: lot.quantity.toString(),
-          unit: toUnitDef(lot.unit),
-          expiresOn: lot.expiresOn,
-        }));
+      const ofIngredient = lots.filter(
+        (lot) => lot.ingredientId === withdrawal.ingredientId,
+      );
+
+      const chosen = pinByIngredient.get(withdrawal.ingredientId) ?? {};
+      const name = nameByIngredient.get(withdrawal.ingredientId) ?? withdrawal.rawText;
+
+      // Aborts the whole cook rather than quietly ignoring the selection.
+      // Deducting from a different jar than the one the cook named is the one
+      // outcome they explicitly ruled out.
+      const selected = resolveSelection(ofIngredient, chosen, name);
+
+      const relevant: BalanceLot[] = selected.lots.map((lot) => ({
+        id: lot.id,
+        quantity: lot.quantity.toString(),
+        unit: toUnitDef(lot.unit),
+        expiresOn: lot.expiresOn,
+      }));
+
+      const need = { quantity: withdrawal.quantity, unit: withdrawal.unit };
+      const physicals = physicalsByIngredient.get(withdrawal.ingredientId);
 
       return {
         withdrawal,
-        result: planDeduction(
-          { quantity: withdrawal.quantity, unit: withdrawal.unit },
-          relevant,
-          physicalsByIngredient.get(withdrawal.ingredientId),
-        ),
+        pin: selected.kind === 'auto' ? selected.pin : null,
+        explicit: selected.kind === 'explicit',
+        result:
+          selected.kind === 'explicit'
+            ? planExplicitDeduction(need, selected.draws, relevant, physicals)
+            : planDeduction(need, relevant, physicals),
       };
     });
 
-    const unitByLot = new Map(lots.map((lot) => [lot.id, lot.unitId]));
+    return {
+      recipe,
+      servings,
+      skipped: plan.skipped,
+      deductions,
+      unitByLot: new Map(lots.map((lot) => [lot.id, lot.unitId])),
+    };
+  }
+
+  private async deduct(
+    recipeId: number,
+    servings: number,
+    userId: number,
+    context: { plannedMealId?: number; note?: string; pins?: readonly CookPin[] },
+  ) {
+    const planned = await this.planFor(recipeId, servings, context.pins);
+    const { recipe, deductions, unitByLot } = planned;
 
     const session = await this.db.$transaction(async (tx) => {
       const created = await tx.cookSession.create({
@@ -177,28 +275,64 @@ export class CookService {
       return created;
     });
 
+    return this.buildReport(planned, session.id);
+  }
+
+  /**
+   * The report both the preview and the real cook return.
+   *
+   * `cookSessionId` is null for a preview — the one field that tells the two
+   * apart, and the only thing a caller needs to know about which it is holding.
+   */
+  private buildReport(planned: PlannedCook, cookSessionId: number | null) {
+    const { recipe, servings, deductions, skipped } = planned;
+
     const shortfalls = deductions
-      .filter(({ result }) => result.shortfall.gt(0) || result.unusable.length > 0)
-      .map(({ withdrawal, result }) => ({
+      .filter(
+        ({ result }) =>
+          result.shortfall.gt(0) ||
+          result.unusable.length > 0 ||
+          result.unmeasured.length > 0,
+      )
+      .map(({ withdrawal, pin, result }) => ({
         ingredientId: withdrawal.ingredientId,
         rawText: withdrawal.rawText,
         wanted: withdrawal.quantity.toString(),
         got: result.allocated.toString(),
         short: result.shortfall.toString(),
         unit: withdrawal.unit,
+        pinned: pin,
         unusableLots: result.unusable,
+        // Taken as instructed, but not countable towards the need above.
+        unmeasuredLots: result.unmeasured.map((entry) => ({
+          lotId: entry.lotId,
+          unit: entry.unit,
+          reason: entry.reason,
+          took: entry.took.toString(),
+        })),
       }));
 
     return {
-      cookSessionId: session.id,
+      cookSessionId,
       recipe: { id: recipe.id, title: recipe.title },
       servings,
       scaledFrom: recipe.servings,
-      deducted: deductions.map(({ withdrawal, result }) => ({
+      deducted: deductions.map(({ withdrawal, pin, explicit, result }) => ({
         ingredientId: withdrawal.ingredientId,
         rawText: withdrawal.rawText,
         took: result.allocated.toString(),
+        // What the recipe asked for. Only ever equalled `took` before amounts
+        // could be typed by hand; now a cook can knowingly use more or less.
+        needed: withdrawal.quantity.toString(),
+        // Computed here, in Decimal, rather than left for the client to
+        // subtract — a displayed quantity must never go through a float.
+        // Empty when nothing was used beyond the recipe.
+        over: Decimal.max(result.allocated.minus(withdrawal.quantity), 0)
+          .toString()
+          .replace(/^0$/, ''),
         unit: withdrawal.unit,
+        pinned: pin,
+        explicit,
         fromLots: result.allocations.map((a) => ({
           lotId: a.lotId,
           took: a.take.toString(),
@@ -207,7 +341,7 @@ export class CookService {
       })),
       // Everything the deduction could not reach, so nothing is silently lost.
       shortfalls,
-      skipped: plan.skipped,
+      skipped,
     };
   }
 
@@ -322,6 +456,44 @@ const INGREDIENT_SELECT = {
   gramsPerMl: true,
   gramsPerPiece: true,
 } as const;
+
+/** What `planFor` hands to `buildReport` and to the transaction. */
+interface PlannedCook {
+  recipe: { id: number; title: string; servings: number };
+  servings: number;
+  skipped: ReturnType<typeof planCook>['skipped'];
+  deductions: Array<{
+    withdrawal: Withdrawal;
+    pin: DeductionPin | null;
+    /** True when the cook stated the split rather than letting it be worked out. */
+    explicit: boolean;
+    result: DeductionPlan;
+  }>;
+  unitByLot: Map<number, number>;
+}
+
+/**
+ * Indexes the cook's pins by ingredient.
+ *
+ * Two pins for one ingredient is rejected rather than last-one-wins: the two
+ * say different things about the same line, and silently honouring one of them
+ * would deduct from a jar the user did not choose.
+ */
+function indexPins(pins: readonly CookPin[] | undefined): Map<number, Selection> {
+  const byIngredient = new Map<number, Selection>();
+  for (const pin of pins ?? []) {
+    if (byIngredient.has(pin.ingredientId)) {
+      throw new BadRequestException(
+        `Two different lots were picked for the same ingredient (${pin.ingredientId}).`,
+      );
+    }
+    byIngredient.set(pin.ingredientId, {
+      pin: { lotId: pin.lotId, productId: pin.productId },
+      draws: pin.draws,
+    });
+  }
+  return byIngredient;
+}
 
 /** Narrows recipe rows into the shape the pure cook planner expects. */
 function toCookLines(

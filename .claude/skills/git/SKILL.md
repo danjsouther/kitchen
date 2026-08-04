@@ -15,6 +15,54 @@ license: MIT
 - Prefer a new commit over `--amend` once a commit has left your hands (pushed,
   or reviewed) — amending rewrites history someone else may already have.
 
+## Writing the message without mangling it
+This repo is worked on from two shells with incompatible quoting — Git Bash
+(POSIX `sh`) and PowerShell. A multi-line message quoted for the wrong one does
+not fail; it commits, with the quoting characters embedded in the message. A
+PowerShell here-string (`@'…'@`) run through Bash has produced a commit whose
+subject line was a bare `@`, with a second `@` after the trailer.
+
+**Pipe the message in on stdin, using the form that matches the shell you are
+actually calling** — never `-m` with a multi-line string:
+
+```bash
+# Bash tool — quoted heredoc ('EOF'), so $ and ` stay literal
+git commit -F - <<'EOF'
+Subject line here.
+
+Co-Authored-By: …
+EOF
+```
+
+```powershell
+# PowerShell tool — single-quoted here-string PIPED in; closing '@ at column 0
+@'
+Subject line here.
+
+Co-Authored-By: …
+'@ | git commit -F -
+```
+
+The pipe is not optional. `git commit -F - @'…'@` puts the here-string in
+`argv`, where `git` reads it as a pathspec and fails with "did not match any
+file(s) known to git" — `-F -` only ever reads stdin.
+
+Either shell can also take `-F <file>`, which is the safest option for a long
+message: write it with the Write tool, then point `git commit` at it.
+
+**Then read it back**, with line ends made visible — `git log -1 --format=%B`
+alone renders a stray `@` or a swallowed newline as ordinary-looking text:
+
+```bash
+git log -1 --format=%B | cat -A                          # Bash
+```
+```powershell
+git log -1 --format=%B | ForEach-Object { "[$_]" }       # PowerShell (no cat -A)
+```
+
+Fix a bad message with `--amend` *while the commit is still local* — see the
+rule above about commits that have left your hands.
+
 ## Changelog entries
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html): newest-first
@@ -34,12 +82,27 @@ work landed. A version bump moves `## Unreleased` entries under a new
 version heading, in the same commit as the version files. **Tag the release
 `v<version>`** (e.g. `v0.2.0`) once that commit lands.
 
-# Merges
-- **Never merge `main` into a feature branch.** Always rebase instead.
-
 # Branches
-- `main` is the only long-lived branch. All others are short-lived feature branches.
-- always create a feature branch from `main` and rebase it onto `main` before merging back.
+Three tiers — full rules, including the release and hotfix sequences and the
+GitHub protection settings, in [docs/BRANCHING.md](../../../docs/BRANCHING.md).
+
+- `main` and `dev` are the **only** long-lived branches, and nothing is
+  committed directly to either. `main` is production: every commit on it is a
+  tagged release merge or a hotfix. `dev` is the integration line.
+- Everything else is short-lived, named `<type>/<short-kebab-summary>` with
+  `type` one of `feature`, `fix`, `chore`, `hotfix`.
+- **Branch from `dev` and merge back into `dev`** — not `main`. The one
+  exception is `hotfix/*`, which branches from `main`, merges to `main`, and is
+  then merged *forward into `dev`*. Skipping that last step reintroduces the
+  bug at the next release.
+- A release is prepared on `dev` (changelog roll-up + version bump, one commit)
+  and merged into `main` with `--no-ff`, then tagged `v<version>`.
+
+# Merges
+- **Never merge a long-lived branch into a short-lived one.** Rebase onto it
+  instead — `git rebase origin/dev`, never `git merge dev`.
+- Merges *into* `dev` and `main` are `--no-ff`, so the merge commit records
+  where the work landed.
 
 # Line endings
 `.gitattributes` pins `eol=lf` project-wide — that's a deliberate override of

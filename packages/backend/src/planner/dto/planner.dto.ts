@@ -1,16 +1,24 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsIn,
   IsInt,
   IsISO8601,
+  IsNumberString,
   IsOptional,
   IsPositive,
   IsString,
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { MealSlot, PlanStatus } from '@kitchen/shared-types';
+
+import { ExplicitDrawDto } from '../../pantry/dto/pantry.dto';
+
+export { ExplicitDrawDto };
 
 const SLOTS = Object.values(MealSlot);
 const STATUSES = Object.values(PlanStatus);
@@ -97,6 +105,45 @@ export class UpdatePlannedMealDto {
   status?: PlanStatus;
 }
 
+/**
+ * "For this ingredient, take it out of this jar."
+ *
+ * Without one, an ingredient is drawn soonest-expiry-first across every lot of
+ * it, which is the right default and the wrong answer when the cook has a
+ * particular pack in their hand.
+ */
+export class DeductionPinDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  ingredientId!: number;
+
+  /** Mutually exclusive with `productId`. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  lotId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  productId?: string;
+
+  /**
+   * Exactly what came out of each lot, as the cook worked it out.
+   *
+   * Present, it replaces auto-allocation entirely and `lotId`/`productId` must
+   * be absent — those narrow a search this has already finished.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ExplicitDrawDto)
+  draws?: ExplicitDrawDto[];
+}
+
 export class CookDto {
   /** Overrides the planned serving count for this one cook. */
   @IsOptional()
@@ -110,6 +157,14 @@ export class CookDto {
   @IsString()
   @MaxLength(200)
   note?: string;
+
+  /** At most one per ingredient; the service rejects duplicates. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => DeductionPinDto)
+  pins?: DeductionPinDto[];
 }
 
 /** Cooking something that was never on the calendar. */
