@@ -196,6 +196,7 @@ export class HouseholdDataService {
       key: locationKeyByDbId.get(l.id)!,
       name: l.name,
       sortOrder: l.sortOrder,
+      isDefault: l.isDefault,
     }));
 
     const tags: ExportedTag[] = tagRows.map((t) => ({
@@ -495,13 +496,26 @@ export class HouseholdDataService {
         };
 
         // 1. Storage locations ------------------------------------------------
-        for (const loc of dto.storageLocations as ExportedStorageLocationInput[]) {
+        const importedLocations = dto.storageLocations as ExportedStorageLocationInput[];
+        // Importing merges into whatever the household already has, so a default
+        // arriving here must displace an existing one rather than create a second.
+        if (importedLocations.some((l) => l.isDefault)) {
+          await tx.storageLocation.updateMany({
+            where: { isDefault: true },
+            data: { isDefault: false },
+          });
+        }
+        let defaultImported = false;
+        for (const loc of importedLocations) {
           await assertFree(
             tx.storageLocation.findFirst({ where: { name: loc.name } }),
             `Import aborted: a storage location called "${loc.name}" already exists in this household.`,
           );
+          // Guards against a malformed export naming two defaults; only the first wins.
+          const isDefault = Boolean(loc.isDefault) && !defaultImported;
+          if (isDefault) defaultImported = true;
           const created = await tx.storageLocation.create({
-            data: { name: loc.name, sortOrder: loc.sortOrder } as never,
+            data: { name: loc.name, sortOrder: loc.sortOrder, isDefault } as never,
           });
           locationIdByKey.set(loc.key, created.id);
         }
@@ -836,7 +850,13 @@ export class HouseholdDataService {
 // not actually match — a missing field, a wrong type — surfaces as a Prisma
 // error from the `create` call, which is caught the same way a collision is.
 
-type ExportedStorageLocationInput = { key: number; name: string; sortOrder: number };
+type ExportedStorageLocationInput = {
+  key: number;
+  name: string;
+  sortOrder: number;
+  /** Absent on an export taken before defaults existed — treated as false. */
+  isDefault?: boolean;
+};
 type ExportedUnitInput = {
   key: number;
   name: string;

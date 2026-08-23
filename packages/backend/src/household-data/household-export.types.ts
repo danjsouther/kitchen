@@ -66,6 +66,7 @@ export interface ExportedStorageLocation {
   key: number;
   name: string;
   sortOrder: number;
+  isDefault: boolean;
 }
 
 export interface ExportedTag {

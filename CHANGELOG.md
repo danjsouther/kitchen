@@ -4,6 +4,15 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Pick a default storage location (2026-08-23)
+
+Stocking the pantry always defaulted to whichever location sorted first, with
+no way to change that. Settings now lets a household mark one storage location
+as the default — a star toggle next to each place in "Where things are kept."
+The pantry add-item form and a shopping list's put-away step both start from
+that default instead of the alphabetically-first shelf, while a location
+picked by hand for the item in front of you still wins over it.
+
 ### Fixed — Each scanned item now fills in from its own product (2026-08-23)
 
 Stocking several scanned barcodes in one go carried the first item's details

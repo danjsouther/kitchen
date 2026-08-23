@@ -49,7 +49,8 @@ import type { StorageLocation, Store } from "../core/models";
           <mat-card-content>
             <h2>Where things are kept</h2>
             <p class="muted small">
-              Fridge, freezer, larder — wherever the pantry lives.
+              Fridge, freezer, larder — wherever the pantry lives. The default
+              is what a new pantry item starts in.
             </p>
 
             <mat-list>
@@ -58,7 +59,23 @@ import type { StorageLocation, Store } from "../core/models";
                   <span matListItemTitle>{{ location.name }}</span>
                   <span matListItemLine class="muted">
                     {{ location._count?.items ?? 0 }} items
+                    @if (location.isDefault) {
+                      · default
+                    }
                   </span>
+                  <button
+                    matListItemMeta
+                    mat-icon-button
+                    [disabled]="location.isDefault || settingDefault() === location.id"
+                    (click)="makeDefault(location)"
+                    [attr.aria-label]="
+                      location.isDefault
+                        ? location.name + ' is the default'
+                        : 'Make ' + location.name + ' the default'
+                    "
+                  >
+                    <mat-icon>{{ location.isDefault ? "star" : "star_outline" }}</mat-icon>
+                  </button>
                 </mat-list-item>
               }
             </mat-list>
@@ -208,6 +225,8 @@ export class SettingsComponent {
 
   readonly locations = signal<StorageLocation[]>([]);
   readonly stores = signal<Store[]>([]);
+  /** The location id currently being set as default, or null when idle. */
+  readonly settingDefault = signal<number | null>(null);
 
   // Two independent single-field forms rather than one: they submit to
   // different endpoints and either can be filled without the other.
@@ -251,6 +270,22 @@ export class SettingsComponent {
       } catch (error: unknown) {
         this.notify.error(error, "Could not add that.");
       }
+    });
+  }
+
+  makeDefault(location: StorageLocation): void {
+    if (this.settingDefault() !== null) return;
+
+    this.settingDefault.set(location.id);
+    this.api.setDefaultLocation(location.id).subscribe({
+      next: () => {
+        this.settingDefault.set(null);
+        this.loadLocations();
+      },
+      error: (error: unknown) => {
+        this.settingDefault.set(null);
+        this.notify.error(error, "Could not set that default.");
+      },
     });
   }
 

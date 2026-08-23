@@ -39,6 +39,20 @@ export class LocationsService {
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
     if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
+    if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
+
+    // Only one default at a time: making this one the default unsets whichever
+    // location held it before, in the same transaction so a request never
+    // observes two.
+    if (dto.isDefault === true) {
+      return this.db.$transaction(async (tx) => {
+        await tx.storageLocation.updateMany({
+          where: { isDefault: true, id: { not: id } },
+          data: { isDefault: false },
+        });
+        return tx.storageLocation.update({ where: { id }, data: data as never });
+      });
+    }
 
     return this.db.storageLocation.update({ where: { id }, data: data as never });
   }
