@@ -403,11 +403,15 @@ export class PantryItemFormComponent {
 
       const chosen = previous?.value.locationId ?? 0;
       const keepLocation = source.locations.some((l) => l.id === chosen);
+      // A location picked by hand wins on reload; otherwise the household's
+      // chosen default, falling back to the first entry when none is set.
+      const fallback =
+        source.locations.find((l) => l.isDefault)?.id ?? source.locations[0]?.id ?? 0;
       return {
         ingredientId: 0,
         quantity: "",
         unitId: 0,
-        locationId: keepLocation ? chosen : (source.locations[0]?.id ?? 0),
+        locationId: keepLocation ? chosen : fallback,
         brand: "",
         expiresOn: "",
       };

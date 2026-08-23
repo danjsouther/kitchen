@@ -288,6 +288,10 @@ export class ApiService {
     return this.post<M.StorageLocation>('/storage-locations', { name });
   }
 
+  setDefaultLocation(id: number) {
+    return this.patch<M.StorageLocation>(`/storage-locations/${id}`, { isDefault: true });
+  }
+
   // -- Planner -------------------------------------------------------------
 
   planner(from: string, to: string) {

@@ -465,10 +465,14 @@ model RecipeTag {
 // ---------------------------------------------------------------------------
 
 model StorageLocation {
-  id          Int    @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   householdId Int
   name        String
-  sortOrder   Int    @default(0)
+  sortOrder   Int     @default(0)
+  /// The place a new pantry item's location defaults to. At most one per
+  /// household — enforced in LocationsService, not the schema, since Prisma
+  /// cannot express a partial unique index here.
+  isDefault   Boolean @default(false)
 
   household Household    @relation(fields: [householdId], references: [id])
   items     PantryItem[]

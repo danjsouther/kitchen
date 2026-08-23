@@ -300,6 +300,7 @@ export interface StorageLocation {
   id: number;
   name: string;
   sortOrder: number;
+  isDefault: boolean;
   _count?: { items: number };
 }
 
