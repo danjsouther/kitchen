@@ -4,6 +4,22 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Each scanned item now fills in from its own product (2026-08-23)
+
+Stocking several scanned barcodes in one go carried the first item's details
+onto every item after it. The form was reused as the queue advanced but never
+cleared, and because it only fills a field that is still empty, the previous
+item's amount both stayed on screen and stopped the new product's own pack size
+being read from the food database. Three scanned items with nothing in common
+all read "16 each, Rao's". Each item now starts clean and fills in from its own
+barcode — while keeping the storage location picked by hand, since putting one
+shop away should mean choosing the cupboard once rather than for every item.
+
+Pack size and pack unit are also applied together now instead of separately.
+The ingredient's default unit used to get there first, so the number off the
+pack landed beside the wrong unit: a 2 fl oz bottle of vanilla extract read
+"2 teaspoon", and a 16 oz jar read "16 each".
+
 ### Added — Cook a recipe without adding it to the calendar (2026-08-23)
 
 Deducting a recipe's ingredients used to require putting it on a calendar day

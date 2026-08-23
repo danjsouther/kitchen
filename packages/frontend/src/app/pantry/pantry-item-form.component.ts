@@ -5,6 +5,7 @@ import { Component,
   linkedSignal,
   output,
   signal,
+  untracked,
 } from "@angular/core";
 import {
   FormField,
@@ -342,7 +343,8 @@ export class PantryItemFormComponent {
   readonly pickerText = signal("");
 
   /**
-   * The whole form model, derived from the `lot` input but freely editable.
+   * The whole form model, derived from the `lot` and `prefill` inputs but
+   * freely editable.
    *
    * linkedSignal on the *model object*, so Signal Forms gets an ordinary
    * writable signal while the reset-on-input-change behaviour is preserved. The
@@ -351,15 +353,27 @@ export class PantryItemFormComponent {
    * lot's numbers under the new lot's name, so saving wrote them to the wrong
    * lot.
    *
+   * `prefill` is a source for exactly the same reason: the scan queue advances
+   * item to item on one live instance, and without it here the model still held
+   * the last item's quantity/unit/brand. That is worse than stale-looking,
+   * because applyLookup only fills a field that is empty — so the previous
+   * item's numbers both stayed on screen *and* suppressed the new product's own
+   * pack size from the catalog.
+   *
    * `previous` keeps a location the user picked by hand when the locations list
-   * reloads, instead of snapping back to the first entry.
+   * reloads, instead of snapping back to the first entry — and, across a scan
+   * queue, keeps the whole shop going into the cupboard it was headed for.
    *
    * Ids are 0 rather than null when nothing is chosen: Signal Forms requires
    * non-null initial values, so 0 is the "nothing selected" sentinel and the
    * schema rejects it.
    */
   readonly model = linkedSignal<
-    { lot: PantryLot | null; locations: StorageLocation[] },
+    {
+      lot: PantryLot | null;
+      prefill: ScanQueueEntry | null;
+      locations: StorageLocation[];
+    },
     {
       ingredientId: number;
       quantity: string;
@@ -369,7 +383,11 @@ export class PantryItemFormComponent {
       expiresOn: string;
     }
   >({
-    source: () => ({ lot: this.lot(), locations: this.locations() }),
+    source: () => ({
+      lot: this.lot(),
+      prefill: this.prefill(),
+      locations: this.locations(),
+    }),
     computation: (source, previous) => {
       const lot = source.lot;
       if (lot) {
@@ -420,16 +438,35 @@ export class PantryItemFormComponent {
   });
 
   constructor() {
-    // Seeds the same state a live scan would, once per distinct prefill —
-    // guarded on the entry's id rather than running once in the constructor,
-    // for the same reason `model` seeds via linkedSignal: the scan-queue
-    // flow keeps this component alive across items, only the input changes.
-    let seededFor: number | null = null;
+    // Everything per-item that does not live in `model` is reset here, and a
+    // prefill seeds the same state a live scan would.
+    //
+    // Keyed on which lot/queue entry is on screen rather than running once in
+    // the constructor, for the same reason `model` seeds via linkedSignal: both
+    // the scan queue and the pantry list keep this instance alive and only
+    // change the input. `model` handles itself; touched/dirty do not follow it,
+    // because Signal Forms hangs field state off the form rather than the
+    // value — so the second item of a queue opened already showing "How much is
+    // required." from the first one's submit.
+    let seededFor: string | null = null;
     effect(() => {
+      const lot = this.lot();
       const entry = this.prefill();
-      if (!entry || entry.id === seededFor) return;
-      seededFor = entry.id;
-      this.applyLookup(entry);
+      const key = `${lot?.id ?? 0}:${entry?.id ?? 0}`;
+
+      // The reads below (model, form state) would otherwise become
+      // dependencies, re-running this on every keystroke to hit the guard.
+      untracked(() => {
+        if (key === seededFor) return;
+        seededFor = key;
+
+        this.itemForm().reset();
+        this.error.set("");
+        this.scan.set(null);
+        this.pickerText.set("");
+
+        if (entry) this.applyLookup(entry);
+      });
     });
   }
 
@@ -484,6 +521,21 @@ export class PantryItemFormComponent {
   private applyLookup(result: BarcodeLookup): void {
     this.scan.set(result);
 
+    // packQuantity/packUnitId are null together or not at all (see CLAUDE.md),
+    // and they are written together too: an amount off the pack sitting beside
+    // a unit from somewhere else is a 500 g bag reading "500 cup". So this runs
+    // *before* applyIngredient, letting the pack's own unit win over the
+    // ingredient's default, and takes both fields or neither — a quantity
+    // already typed by hand keeps its own unit rather than being re-labelled.
+    const product = result.product;
+    if (product?.packQuantity && product.packUnitId) {
+      this.model.update((m) =>
+        m.quantity === "" && m.unitId === 0
+          ? { ...m, quantity: product.packQuantity!, unitId: product.packUnitId! }
+          : m,
+      );
+    }
+
     if (result.effectiveIngredient) {
       this.applyIngredient(result.effectiveIngredient);
     } else {
@@ -496,19 +548,6 @@ export class PantryItemFormComponent {
     if (result.product?.brands) {
       const brand = result.product.brands.split(",")[0]?.trim() ?? "";
       if (brand) this.model.update((m) => ({ ...m, brand: m.brand || brand }));
-    }
-
-    // packQuantity/packUnitId are null together or not at all (see
-    // CLAUDE.md), so filling one without the other never happens. Only
-    // fills fields the user has not already touched, so a rescan cannot
-    // clobber an amount that was typed by hand.
-    const product = result.product;
-    if (product?.packQuantity && product.packUnitId) {
-      this.model.update((m) => ({
-        ...m,
-        quantity: m.quantity || product.packQuantity!,
-        unitId: m.unitId === 0 ? product.packUnitId! : m.unitId,
-      }));
     }
   }
 
