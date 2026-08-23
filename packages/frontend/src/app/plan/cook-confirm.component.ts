@@ -29,6 +29,16 @@ import type {
   UnmeasuredLot,
 } from "../core/models";
 
+/**
+ * What is being cooked: an existing calendar entry, or a bare recipe cooked
+ * on the spot with no planned meal behind it. The two hit different API
+ * endpoints (planner-scoped vs recipe-scoped) but render identically, since
+ * both resolve to the same `CookReport` shape.
+ */
+export type CookTarget =
+  | { kind: "planned"; meal: PlannedMeal }
+  | { kind: "recipe"; recipe: { id: number; title: string; servings: number } };
+
 /** Why a recipe line was left out of the deduction entirely. */
 const SKIP_REASON: Record<string, string> = {
   OPTIONAL: "optional — not deducted",
@@ -72,7 +82,7 @@ const UNUSABLE_REASON: Record<string, string> = {
   template: `
     <mat-card class="form">
       <mat-card-content>
-        <h2>Cook {{ meal().recipe?.title }}</h2>
+        <h2>Cook {{ title() }}</h2>
 
         @if (report(); as preview) {
           <p class="muted small">
@@ -287,10 +297,15 @@ export class CookConfirmComponent {
    */
   private readonly dates = new DatePipe(inject(LOCALE_ID));
 
-  readonly meal = input.required<PlannedMeal>();
+  readonly target = input.required<CookTarget>();
 
   readonly cooked = output<CookReport>();
   readonly cancelled = output<void>();
+
+  readonly title = computed(() => {
+    const target = this.target();
+    return target.kind === "planned" ? target.meal.recipe?.title : target.recipe.title;
+  });
 
   readonly report = signal<CookReport | null>(null);
   readonly loading = signal(true);
@@ -382,14 +397,19 @@ export class CookConfirmComponent {
   });
 
   constructor() {
-    // Keyed on the meal id rather than run once: the parent may swap one meal
-    // for another without destroying this component, and a stale preview would
-    // then invite the user to confirm a cook of the wrong recipe.
-    let loadedFor: number | null = null;
+    // Keyed on the target rather than run once: the parent may swap one meal
+    // (or recipe) for another without destroying this component, and a stale
+    // preview would then invite the user to confirm a cook of the wrong
+    // recipe. Composite string, not a raw id — a planned-meal id and a
+    // recipe id are different sequences and a plain numeric key could
+    // collide between them.
+    let loadedFor: string | null = null;
     effect(() => {
-      const meal = this.meal();
-      if (meal.id === loadedFor) return;
-      loadedFor = meal.id;
+      const target = this.target();
+      const key =
+        target.kind === "planned" ? `planned:${target.meal.id}` : `recipe:${target.recipe.id}`;
+      if (key === loadedFor) return;
+      loadedFor = key;
       this.drafts.set({});
       this.lots.set([]);
       this.load();
@@ -406,7 +426,17 @@ export class CookConfirmComponent {
     this.loading.set(true);
     this.error.set("");
 
-    this.api.previewCookMeal(this.meal().id, { pins: this.pinList() }).subscribe({
+    const target = this.target();
+    const request =
+      target.kind === "planned"
+        ? this.api.previewCookMeal(target.meal.id, { pins: this.pinList() })
+        : this.api.previewCookRecipe({
+            recipeId: target.recipe.id,
+            servings: target.recipe.servings,
+            pins: this.pinList(),
+          });
+
+    request.subscribe({
       next: (preview) => {
         this.loading.set(false);
         this.report.set(preview);
@@ -537,7 +567,17 @@ export class CookConfirmComponent {
     this.busy.set(true);
     this.error.set("");
 
-    this.api.cookMeal(this.meal().id, { pins: this.pinList() }).subscribe({
+    const target = this.target();
+    const request =
+      target.kind === "planned"
+        ? this.api.cookMeal(target.meal.id, { pins: this.pinList() })
+        : this.api.cookRecipe({
+            recipeId: target.recipe.id,
+            servings: target.recipe.servings,
+            pins: this.pinList(),
+          });
+
+    request.subscribe({
       next: (result) => {
         this.busy.set(false);
         this.cooked.emit(result);

@@ -4,6 +4,17 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Cook a recipe without adding it to the calendar (2026-08-23)
+
+Deducting a recipe's ingredients used to require putting it on a calendar day
+first, then cooking it from there — a fabricated planned meal for something
+that was never planned, left sitting on the week afterward. The confirm/pin
+lot-picker screen now works against a bare recipe as well as a planned meal,
+reached by a Cook button on the recipe detail page (using whatever serving
+count is currently on screen) or a one-click icon on each recipe card. Nothing
+is written to the calendar; the cook session, deduction, and undo all worked
+this way already under the hood.
+
 ## 0.5.0 (2026-08-03)
 
 ### Changed — A `dev` branch between features and production (2026-08-03)

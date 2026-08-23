@@ -96,6 +96,64 @@ tier.
 
 ## Medium
 
+- [x] **Let a recipe be cooked without ever going on the calendar**
+  ```
+  The backend already supports this — CookService.cookRecipe and
+  .previewRecipe (packages/backend/src/planner/cook.service.ts:74,106) deduct
+  against a bare recipeId with no PlannedMeal involved, exposed as
+  POST /cook-sessions and POST /cook-sessions/preview
+  (CookSessionsController, packages/backend/src/planner/planner.controller.ts:81)
+  and explicitly commented "cooking something that was never planned." But
+  nothing in the frontend reaches it: api.service.ts has previewCookRecipe
+  (line 323) calling /cook-sessions/preview, but no method at all for the
+  commit endpoint, and app-cook-confirm (plan/cook-confirm.component.ts) is
+  only ever instantiated from plan.component.ts against a plannedMealId. The
+  recipe detail page (recipes/recipe-detail.component.ts) has no cook action —
+  the only way to cook today is to first add the recipe to a calendar day,
+  then cook it from there, which also leaves a COOKED entry sitting on the
+  calendar for something the user never meant to plan (e.g. cooking dinner
+  spontaneously from what's in the pantry).
+
+  Wanted: a "Cook" entry point on the recipe detail page (or elsewhere a
+  recipe is browsed) that opens the same confirm/pin/preview flow
+  app-cook-confirm already renders, backed by the existing
+  /cook-sessions[/preview] endpoints instead of /planner/:id/cook.
+
+  Open: whether app-cook-confirm is generalized to accept either a
+  plannedMealId or a bare recipeId (it already receives a CookReport shape
+  from either preview call) or a second thin wrapper component is added;
+  whether a spontaneous cook should offer to backfill a COOKED calendar entry
+  for the day, or stay calendar-invisible entirely.
+
+  Done: no backend changes — CookService.cookRecipe/.previewRecipe and their
+  routes were already there. api.service.ts gained `cookRecipe` (POST
+  /cook-sessions) alongside the existing `previewCookRecipe`.
+  app-cook-confirm was generalized rather than duplicated: `meal:
+  PlannedMeal` became a `target: CookTarget` discriminated union (`{ kind:
+  'planned'; meal }` | `{ kind: 'recipe'; recipe: { id, title, servings } }`),
+  branching only at the two API call sites and the title/effect-key — every
+  other line of the 600-line pin/lot/draft/report logic was already generic
+  over CookReport and needed no change. plan.component.ts's one usage was
+  updated to wrap its meal in `{ kind: 'planned', meal }`.
+
+  Two entry points: a "Cook" button on the recipe detail page's servings
+  scaler, passing the *currently scaled* serving count (not the recipe's
+  base) as an explicit override — the one chance to carry what's on screen
+  into the deduction, since there's no planned-meal row to hold it. And a
+  quick-cook icon on each recipe-list card, which just navigates to
+  `/recipes/:id?cook=1` (a new `cook` input bound the same way `?q=` already
+  is on the ingredients page) rather than duplicating the lot-picker inline —
+  the list DTO has no ingredient data and the card grid has no room for it
+  anyway.
+
+  Decided calendar-invisible, not backfillable: verified end-to-end against a
+  real household — cooking a recipe writes a CookSession with
+  `plannedMealId: null`, deducts the pantry by exactly the scaled amount,
+  produces no /planner row for the week, and undoes cleanly via the existing
+  DELETE /cook-sessions/:id. The pre-existing planned-meal cook flow on /plan
+  was re-verified unchanged.
+  ```
+
 - [ ] **Meal prep: let a planned meal span multiple days on the calendar**
   ```
   PlannedMeal.date (packages/backend/prisma/schema.prisma) is a single Date, so
