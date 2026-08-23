@@ -84,12 +84,24 @@ const PAGE_LIMIT = 20;
         @for (recipe of recipes(); track recipe.id) {
           <mat-card class="card" [routerLink]="['/recipes', recipe.id]">
             <mat-card-content>
-              <h2>
-                {{ recipe.title }}
-                @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
-                  <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
-                }
-              </h2>
+              <div class="card-head">
+                <h2>
+                  {{ recipe.title }}
+                  @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
+                    <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
+                  }
+                </h2>
+                <button
+                  mat-icon-button
+                  [routerLink]="['/recipes', recipe.id]"
+                  [queryParams]="{ cook: 1 }"
+                  (click)="$event.stopPropagation()"
+                  [attr.aria-label]="'Cook ' + recipe.title"
+                  matTooltip="Cook this recipe"
+                >
+                  <mat-icon>restaurant</mat-icon>
+                </button>
+              </div>
               @if (recipe.description) {
                 <p class="muted desc">{{ recipe.description }}</p>
               }
@@ -133,6 +145,12 @@ const PAGE_LIMIT = 20;
     }
     .card {
       cursor: pointer;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
     }
     h2 {
       margin: 0 0 0.35rem;

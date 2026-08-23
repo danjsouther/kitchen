@@ -77,7 +77,7 @@ type Slot = (typeof SLOTS)[number];
 
       @if (confirming(); as meal) {
         <app-cook-confirm
-          [meal]="meal"
+          [target]="{ kind: 'planned', meal }"
           (cooked)="onCooked($event)"
           (cancelled)="confirming.set(null)"
         />

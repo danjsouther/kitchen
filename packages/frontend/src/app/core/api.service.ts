@@ -324,6 +324,11 @@ export class ApiService {
     return this.post<M.CookReport>('/cook-sessions/preview', body);
   }
 
+  /** Cooks a recipe that was never on the calendar — an unplanned meal. */
+  cookRecipe(body: CookBody & { recipeId: number }) {
+    return this.post<M.CookReport>('/cook-sessions', body);
+  }
+
   undoCook(cookSessionId: number) {
     return this.delete<{ cookSessionId: number }>(`/cook-sessions/${cookSessionId}`);
   }
