@@ -86,9 +86,11 @@ version heading, in the same commit as the version files. **Tag the release
 Three tiers — full rules, including the release and hotfix sequences and the
 GitHub protection settings, in [docs/BRANCHING.md](../../../docs/BRANCHING.md).
 
-- `main` and `dev` are the **only** long-lived branches, and nothing is
-  committed directly to either. `main` is production: every commit on it is a
-  tagged release merge or a hotfix. `dev` is the integration line.
+- `main` and `dev` are the **only** long-lived branches. Nothing is committed
+  directly to `main` — every commit there is a tagged release merge or a
+  hotfix, landed via PR. `dev` is the integration line and **does** take
+  direct pushes: a finished short-lived branch merges into `dev` with a local
+  `--no-ff` merge and `git push`, no PR required.
 - Everything else is short-lived, named `<type>/<short-kebab-summary>` with
   `type` one of `feature`, `fix`, `chore`, `hotfix`.
 - **Branch from `dev` and merge back into `dev`** — not `main`. The one
@@ -103,10 +105,16 @@ GitHub protection settings, in [docs/BRANCHING.md](../../../docs/BRANCHING.md).
   instead — `git rebase origin/dev`, never `git merge dev`.
 - Merges *into* `dev` and `main` are `--no-ff`, so the merge commit records
   where the work landed.
-- **When merging a PR via `gh pr merge`, always pass `-t`/`--subject`** with a
-  message in the same style as [Commits](#commits) above (sentence case,
-  outcome not mechanism, ending in a period) — never the default "Merge pull
-  request #N from owner/branch". Example:
+- **Landing on `dev` is a direct push, not a PR.** Rebase the branch onto
+  `origin/dev`, merge it locally with `--no-ff`, and `git push origin dev` —
+  see [Feature flow](../../../docs/BRANCHING.md#feature-flow). CI runs against
+  the push but doesn't gate it, so only push once the branch is actually done;
+  there's no review step to catch a problem before it lands.
+- **Landing on `main` still goes through a PR.** When merging one via
+  `gh pr merge`, always pass `-t`/`--subject` with a message in the same style
+  as [Commits](#commits) above (sentence case, outcome not mechanism, ending in
+  a period) — never the default "Merge pull request #N from owner/branch".
+  Example:
   `gh pr merge 12 --merge -t "Let a shopper delete a shopping list from the list screen."`
   A release-sync PR (e.g. `main` → `dev` to fast-forward after a release) is the
   one exception — its default title is already descriptive enough.
