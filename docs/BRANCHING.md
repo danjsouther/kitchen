@@ -19,8 +19,10 @@ feature/a    ●●     ●●  feature/b
 | `dev` | forever | the integration line — finished work awaiting a release | feature merges |
 | `<type>/<summary>` | days | one change | you |
 
-`main` and `dev` are the only long-lived branches. Nothing is ever committed
-directly to either.
+`main` and `dev` are the only long-lived branches. Nothing is committed
+directly to `main` — every commit there is a tagged release merge or a
+hotfix. `dev` does take direct pushes: a finished short-lived branch lands
+with a local `--no-ff` merge and `git push`, no PR (see Feature flow below).
 
 ### Naming
 
@@ -36,7 +38,7 @@ convention have bare names; leave them, don't rename in flight.
 
 ## Feature flow
 
-Branch from `dev`, rebase onto `dev`, merge into `dev`.
+Branch from `dev`, rebase onto `dev`, merge into `dev` directly — no PR.
 
 ```bash
 git switch dev && git pull
@@ -47,13 +49,19 @@ git switch -c feature/thing
 
 git fetch origin
 git rebase origin/dev          # never `git merge dev`
-git push -u origin feature/thing
-# open a PR into dev
+
+git switch dev && git pull
+git merge --no-ff feature/thing -m "..."   # sentence-case outcome, see SKILL.md
+git push origin dev
+git branch -d feature/thing
 ```
 
-The PR merges with `--no-ff` (GitHub's "Create a merge commit"), so the feature
-keeps its own commits and the merge commit records where it landed. Delete the
-branch after merging.
+The `--no-ff` merge keeps the feature's own commits and records where it
+landed. CI still runs against the push (`build-and-test` in
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) triggers on
+`push: branches: [dev, main]`), but it reports after the fact rather than
+gating the merge the way a required PR check would — only push once the
+branch is genuinely done, since nothing catches a problem before it lands.
 
 **Never merge a long-lived branch into a feature branch.** Rebase. A merge from
 `dev` into a feature branch makes the eventual diff unreadable and drags
@@ -104,28 +112,34 @@ and not on `dev` is reintroduced as a regression by the next release.
 
 ## Protecting the branches on GitHub
 
-Neither rule can be enforced from the repo — set both in
+None of this can be enforced from the repo — set it in
 **Settings → Rules → Rulesets** (or Settings → Branches → Add branch
 protection rule) on `github.com/danjsouther/kitchen`.
 
-For **`main`** and **`dev`** alike:
+For **`main`**:
 
 - **Require a pull request before merging** — with "Allow specified actors to
   bypass" left empty even for yourself, so a stray `git push` cannot land on
-  either branch. Approvals can be 0 on a solo repo; the point is that the push
-  goes through a PR and therefore through CI.
+  it. Approvals can be 0 on a solo repo; the point is that the push goes
+  through a PR and therefore through CI.
 - **Require status checks to pass** → select **`build-and-test`**, the job in
   [.github/workflows/ci.yml](../.github/workflows/ci.yml). The check only
   appears in that list after it has run once, so open a throwaway PR first if
   the box is empty.
-- **Require branches to be up to date before merging** — on `main` only.
-  Enabling it on `dev` means every open feature PR needs a rebase whenever
-  anything else merges.
+- **Require branches to be up to date before merging.**
 - **Block force pushes** and **restrict deletions**.
+- Nothing merges into it except `dev` or a `hotfix/*` branch. That one is a
+  convention, not a setting — GitHub cannot restrict a PR by source branch.
 
-`main` additionally: nothing merges into it except `dev` or a `hotfix/*` branch.
-That one is a convention, not a setting — GitHub cannot restrict a PR by source
-branch.
+For **`dev`**:
+
+- **No "require a pull request" rule** — direct pushes are the normal way
+  feature/fix/chore branches land (see Feature flow above). CI still runs on
+  the push (`build-and-test` in
+  [.github/workflows/ci.yml](../.github/workflows/ci.yml)) but reports after
+  the fact instead of gating the merge.
+- **Block force pushes** and **restrict deletions** — history still shouldn't
+  be rewritten or the branch deleted, direct push or not.
 
 ## Why not just `main` and feature branches
 
