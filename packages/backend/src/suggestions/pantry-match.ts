@@ -21,6 +21,7 @@ import Decimal from 'decimal.js';
 import {
   ConversionFailure,
   IngredientPhysicals,
+  RecipeType,
   UnitDef,
   convert,
   scaleForServings,
@@ -48,6 +49,7 @@ export interface MatchRecipe {
   title: string;
   slug: string;
   servings: number;
+  recipeType: RecipeType;
   lines: MatchLine[];
 }
 

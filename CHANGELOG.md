@@ -4,6 +4,107 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.6.0 (2026-08-24)
+
+### Added — Steer AI cook suggestions with a free-text request (2026-08-24)
+
+The Ideas tab's "Suggest something" button now takes an optional 250-character
+hint, e.g. "i want a salmon breakfast dish", sent to Claude alongside the usual
+pantry and match context. It outranks the model's default preference for using
+only what's already on hand: a generated suggestion can now name an ingredient
+the household doesn't have, calling it out honestly in its "why" rather than
+the request being quietly dropped. Each saved recipe's meal type (see below)
+now travels with its title and id, so a request naming a meal no longer gets a
+mismatched recipe dressed up to sound like it fits.
+
+### Added — Recipe type selection (2026-08-24)
+
+A recipe can now be tagged breakfast, lunch, dinner, dessert, snack, or any,
+defaulting to any. The picker is on the recipe form and the paste-a-recipe
+review screen; the type shows as a chip on the recipe list and detail pages
+whenever it isn't "any." It survives publishing to the shared catalog, forking
+a copy, and household export/import, and is part of a recipe's content hash so
+changing it is recorded like any other edit.
+
+### Fixed — Expired pantry stock no longer counts toward suggestions (2026-08-24)
+
+`pantryBalances()` — shared by the pantry match, AI suggestions and
+shopping-list generation, so every screen agrees on stock — counted every
+pantry lot regardless of expiry. A recipe could show as cookable, or a
+household could be told it already had enough of something and skip
+restocking, using a lot that had already gone off. `expiringSoon()` had the
+same gap the other direction: an item that expired weeks ago still matched
+"expires within 7 days" and could be handed to the AI as "going off soon"
+alongside things genuinely about to turn. Both queries now exclude a lot whose
+`expiresOn` is in the past. Deduction and cooking are unaffected — they use a
+separate query and still allow using up an expired lot on purpose.
+
+### Added — Persist AI cook suggestions and what they cost (2026-08-24)
+
+Asking the Ideas tab for suggestions used to be thrown away the moment you left
+`/cook` or reloaded — a paid Anthropic call with no way to see it again except
+paying for it twice, and no way to see what the household had spent overall.
+Every run is now persisted per household, refusals and unparseable responses
+included, since those still cost tokens even with nothing usable to show. The
+Ideas tab shows the most recent run on arrival instead of an empty panel, with
+a "Past suggestions" list to page back through history; Settings' AI section
+shows cumulative usage to date. A suggestion pointing at a recipe that's since
+been archived is caught on read and shown as plain text rather than a dead
+link, without relabelling what kind of suggestion it was.
+
+Also raised the request's token budget and added a check for a response cut
+off mid-generation: a GENERATED suggestion's recipe body could make responses
+large enough to hit the old ceiling, which could silently come back as a
+technically valid but empty result instead of an obvious failure to retry.
+
+### Added — AI-generated suggestions come back as a full recipe, not just a name (2026-08-23)
+
+A GENERATED suggestion in the Ideas tab used to be a dish name and a sentence —
+nothing to actually cook from, and no way to save it. It now comes back with
+real ingredient lines and ordered steps, resolved against the household's
+catalog the same way a pasted recipe is. A "Save this recipe" action opens the
+paste-import review screen pre-filled with the suggestion, so anything the
+model got wrong — an unmatched ingredient, an unrecognised unit — is flagged
+for a look before it's saved, the same trust model already used for a pasted
+recipe. Suggestions that point at a saved recipe or a substitution are
+unaffected; they already point at something real.
+
+### Added — Pick a default storage location (2026-08-23)
+
+Stocking the pantry always defaulted to whichever location sorted first, with
+no way to change that. Settings now lets a household mark one storage location
+as the default — a star toggle next to each place in "Where things are kept."
+The pantry add-item form and a shopping list's put-away step both start from
+that default instead of the alphabetically-first shelf, while a location
+picked by hand for the item in front of you still wins over it.
+
+### Fixed — Each scanned item now fills in from its own product (2026-08-23)
+
+Stocking several scanned barcodes in one go carried the first item's details
+onto every item after it. The form was reused as the queue advanced but never
+cleared, and because it only fills a field that is still empty, the previous
+item's amount both stayed on screen and stopped the new product's own pack size
+being read from the food database. Three scanned items with nothing in common
+all read "16 each, Rao's". Each item now starts clean and fills in from its own
+barcode — while keeping the storage location picked by hand, since putting one
+shop away should mean choosing the cupboard once rather than for every item.
+
+Pack size and pack unit are also applied together now instead of separately.
+The ingredient's default unit used to get there first, so the number off the
+pack landed beside the wrong unit: a 2 fl oz bottle of vanilla extract read
+"2 teaspoon", and a 16 oz jar read "16 each".
+
+### Added — Cook a recipe without adding it to the calendar (2026-08-23)
+
+Deducting a recipe's ingredients used to require putting it on a calendar day
+first, then cooking it from there — a fabricated planned meal for something
+that was never planned, left sitting on the week afterward. The confirm/pin
+lot-picker screen now works against a bare recipe as well as a planned meal,
+reached by a Cook button on the recipe detail page (using whatever serving
+count is currently on screen) or a one-click icon on each recipe card. Nothing
+is written to the calendar; the cook session, deduction, and undo all worked
+this way already under the hood.
+
 ## 0.5.0 (2026-08-03)
 
 ### Changed — A `dev` branch between features and production (2026-08-03)

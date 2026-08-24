@@ -55,10 +55,18 @@ export class SuggestionsService {
    *
    * Shared with the AI method, which is grounded on exactly the numbers the
    * deterministic method used — passing it anything else would let the two tabs
-   * disagree about the same pantry.
+   * disagree about the same pantry. Also reused by shopping-list generation,
+   * so an already-expired lot excluded here does not count toward "you
+   * already have enough" on any of the three screens.
+   *
+   * An expired lot is excluded rather than zeroed: it still physically exists
+   * for deduction/cook purposes (unaffected — that path has its own separate
+   * query), it is just not something to suggest cooking with or to skip
+   * restocking because of.
    */
   async pantryBalances(): Promise<Map<number, PantryBalance>> {
     const lots = await this.db.pantryItem.findMany({
+      where: { OR: [{ expiresOn: null }, { expiresOn: { gte: new Date() } }] },
       include: {
         unit: true,
         ingredient: {
@@ -144,6 +152,7 @@ export class SuggestionsService {
         title: true,
         slug: true,
         servings: true,
+        recipeType: true,
         ingredients: {
           orderBy: { sortOrder: 'asc' },
           select: {
@@ -164,6 +173,7 @@ export class SuggestionsService {
       title: recipe.title,
       slug: recipe.slug,
       servings: recipe.servings,
+      recipeType: recipe.recipeType,
       lines: recipe.ingredients.map((line) => ({
         lineId: line.id,
         ingredientId: line.ingredientId,
@@ -180,14 +190,18 @@ export class SuggestionsService {
    * Ingredients expiring soonest, with what they are.
    *
    * Only used to give the AI method something to work with — "your buttermilk
-   * goes off Thursday" is the kind of suggestion arithmetic cannot make.
+   * goes off Thursday" is the kind of suggestion arithmetic cannot make. A lot
+   * that already expired is a different claim than one about to — it belongs
+   * in "use this up" language, not "goes off soon", so it is excluded here the
+   * same as it now is from pantryBalances.
    */
   async expiringSoon(withinDays = 7) {
+    const now = new Date();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + withinDays);
 
     const lots = await this.db.pantryItem.findMany({
-      where: { expiresOn: { not: null, lte: cutoff } },
+      where: { expiresOn: { gte: now, lte: cutoff } },
       select: {
         id: true,
         quantity: true,

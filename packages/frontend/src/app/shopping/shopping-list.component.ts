@@ -392,7 +392,8 @@ export class ShoppingListComponent {
       this.api.locations().subscribe({
         next: (locations) => {
           this.locations.set(locations);
-          this.locationId.set(locations[0]?.id ?? null);
+          const fallback = locations.find((l) => l.isDefault) ?? locations[0];
+          this.locationId.set(fallback?.id ?? null);
         },
       });
       this.api.units().subscribe({ next: (units) => this.units.set(units) });

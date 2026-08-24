@@ -31,7 +31,8 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
 import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
-import type { Ingredient, RecipeWrite, Unit } from "../core/models";
+import { RECIPE_TYPE_OPTIONS } from "../core/models";
+import type { Ingredient, RecipeType, RecipeWrite, Unit } from "../core/models";
 
 /** One ingredient line as the form holds it, before it becomes a payload. */
 interface IngredientRow {
@@ -180,6 +181,15 @@ function blankIngredient(): IngredientRow {
                 @if (firstError(recipeForm.cookMinutes()); as message) {
                   <mat-error>{{ message }}</mat-error>
                 }
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Meal</mat-label>
+                <mat-select [formField]="recipeForm.recipeType">
+                  @for (option of recipeTypeOptions; track option.value) {
+                    <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                  }
+                </mat-select>
               </mat-form-field>
             </div>
           </mat-card-content>
@@ -448,6 +458,7 @@ export class RecipeFormComponent {
   readonly busy = signal(false);
   readonly loading = signal(false);
   readonly error = signal("");
+  readonly recipeTypeOptions = RECIPE_TYPE_OPTIONS;
 
   /**
    * The owning household of the recipe being edited, `null` on `/recipes/new`.
@@ -468,6 +479,7 @@ export class RecipeFormComponent {
     servings: 4,
     prepMinutes: 0,
     cookMinutes: 0,
+    recipeType: "ANY" as RecipeType,
     sourceNote: "",
     sourceUrl: "",
     notes: "",
@@ -572,6 +584,7 @@ export class RecipeFormComponent {
           servings: recipe.servings,
           prepMinutes: recipe.prepMinutes ?? 0,
           cookMinutes: recipe.cookMinutes ?? 0,
+          recipeType: recipe.recipeType,
           sourceNote: recipe.sourceNote ?? "",
           sourceUrl: recipe.sourceUrl ?? "",
           notes: recipe.notes ?? "",
@@ -719,6 +732,7 @@ export class RecipeFormComponent {
       const body: RecipeWrite = {
         title: value.title.trim(),
         servings: Number(value.servings) || 1,
+        recipeType: value.recipeType,
         ingredients: value.ingredients.map((row) => ({
           ...(row.ingredientId ? { ingredientId: row.ingredientId } : {}),
           rawText: this.lineText(row),

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsNumberString,
@@ -56,6 +57,15 @@ export class UpdateLocationDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  /**
+   * True to make this the household's default (unsets any other default);
+   * false to clear it if it currently is one. Omitted, the default is left
+   * untouched.
+   */
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 export class PantryQueryDto {

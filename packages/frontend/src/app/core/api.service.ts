@@ -288,6 +288,10 @@ export class ApiService {
     return this.post<M.StorageLocation>('/storage-locations', { name });
   }
 
+  setDefaultLocation(id: number) {
+    return this.patch<M.StorageLocation>(`/storage-locations/${id}`, { isDefault: true });
+  }
+
   // -- Planner -------------------------------------------------------------
 
   planner(from: string, to: string) {
@@ -324,6 +328,11 @@ export class ApiService {
     return this.post<M.CookReport>('/cook-sessions/preview', body);
   }
 
+  /** Cooks a recipe that was never on the calendar — an unplanned meal. */
+  cookRecipe(body: CookBody & { recipeId: number }) {
+    return this.post<M.CookReport>('/cook-sessions', body);
+  }
+
   undoCook(cookSessionId: number) {
     return this.delete<{ cookSessionId: number }>(`/cook-sessions/${cookSessionId}`);
   }
@@ -334,8 +343,16 @@ export class ApiService {
     return this.get<M.PantrySuggestions>('/suggestions/pantry', query);
   }
 
-  aiSuggestions(body: { servings?: number } = {}) {
+  aiSuggestions(body: { servings?: number; notes?: string } = {}) {
     return this.post<M.AiSuggestionResult>('/suggestions/ai', body);
+  }
+
+  aiSuggestionHistory(query: { limit?: number; offset?: number } = {}) {
+    return this.get<M.Paged<M.AiSuggestionRun>>('/suggestions/ai/history', query);
+  }
+
+  aiUsageSummary() {
+    return this.get<M.AiUsageSummary>('/suggestions/ai/usage');
   }
 
   aiConfig() {

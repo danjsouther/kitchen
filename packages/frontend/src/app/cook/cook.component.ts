@@ -3,31 +3,58 @@ import {
   inject,
   signal,
 } from "@angular/core";
-import { RouterLink } from "@angular/router";
+import { DatePipe } from "@angular/common";
+import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatChipsModule } from "@angular/material/chips";
+import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
+import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatTabsModule } from "@angular/material/tabs";
 import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { PagerComponent } from "../shared/pager.component";
 import { amountWithUnit } from "../shared/format";
-import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
+import type { AiSuggestionResult, AiSuggestionRun, Paged, RecipeMatch, Unit } from "../core/models";
+
+type GeneratedSuggestionBody = NonNullable<
+  NonNullable<AiSuggestionResult["ai"]>["suggestions"][number]["body"]
+>;
+
+/**
+ * What the Ideas tab actually renders — a live `askAi()` result or a
+ * persisted `AiSuggestionRun` both satisfy this structurally, so selecting a
+ * past run needs no template changes.
+ */
+interface AiSuggestionView {
+  ok: boolean;
+  reason?: string;
+  ai: AiSuggestionResult["ai"];
+  usage?: AiSuggestionResult["usage"];
+}
+
+const HISTORY_LIMIT = 10;
+const NOTES_MAX_LENGTH = 250;
 
 @Component({
   selector: "app-cook",
   imports: [
+    DatePipe,
     RouterLink,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressBarModule,
     MatTabsModule,
     MatTooltipModule,
+    PagerComponent,
   ],
   template: `
     <div class="page">
@@ -115,6 +142,19 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
               household money, so it only runs when you ask.
             </p>
 
+            <mat-form-field appearance="outline" class="notes">
+              <mat-label>Anything in particular?</mat-label>
+              <textarea
+                matInput
+                rows="2"
+                [attr.maxlength]="notesMaxLength"
+                [value]="notes()"
+                (input)="notes.set($any($event.target).value)"
+                placeholder="e.g. I want a salmon dish for breakfast"
+              ></textarea>
+              <mat-hint align="end">{{ notes().length }}/{{ notesMaxLength }}</mat-hint>
+            </mat-form-field>
+
             <button mat-flat-button (click)="askAi()" [disabled]="aiLoading()">
               <mat-icon>auto_awesome</mat-icon>
               Suggest something
@@ -162,6 +202,16 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
 
                       <p class="why">{{ suggestion.why }}</p>
 
+                      @if (suggestion.body) {
+                        <button
+                          mat-button
+                          (click)="saveGenerated(suggestion.title, suggestion.body)"
+                        >
+                          <mat-icon>bookmark_add</mat-icon>
+                          Save this recipe
+                        </button>
+                      }
+
                       @for (swap of suggestion.substitutions; track $index) {
                         <div class="swap">
                           <strong>{{ swap.missing }}</strong> →
@@ -191,6 +241,40 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
                 }
               }
             }
+
+            @if (history().items.length) {
+              <h2>Past suggestions</h2>
+
+              <div class="history-list">
+                @for (run of history().items; track run.id) {
+                  <button
+                    type="button"
+                    class="history-row"
+                    [class.current]="run.id === selectedRunId()"
+                    (click)="selectRun(run)"
+                  >
+                    <span class="grow">
+                      <span [class.warn-text]="!run.ok">
+                        {{ run.ok ? (run.ai?.summary ?? "Suggestions") : (run.reason ?? "Failed") }}
+                      </span>
+                      <div class="muted small">
+                        {{ run.createdOn | date: "d MMM y, HH:mm" }}
+                      </div>
+                    </span>
+                    <span class="muted small">
+                      {{ run.usage.inputTokens }} in / {{ run.usage.outputTokens }} out
+                    </span>
+                  </button>
+                }
+              </div>
+
+              <app-pager
+                [total]="history().total"
+                [limit]="historyLimit"
+                [offset]="history().offset"
+                (offsetChange)="loadHistory($event)"
+              />
+            }
           </div>
         </mat-tab>
       </mat-tab-group>
@@ -206,6 +290,10 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
     }
     .tab-body > button {
       align-self: flex-start;
+    }
+    .notes {
+      width: 100%;
+      max-width: 32rem;
     }
     .title {
       font-weight: 500;
@@ -253,18 +341,53 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
     .notice {
       background: var(--mat-sys-surface-container-high);
     }
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .history-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 8px;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+    }
+    .history-row.current {
+      background: var(--mat-sys-secondary-container);
+      border-color: transparent;
+    }
   `,
 })
 export class CookComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+  private readonly router = inject(Router);
 
   readonly matches = signal<RecipeMatch[]>([]);
   readonly loading = signal(true);
 
-  readonly ai = signal<AiSuggestionResult | null>(null);
+  readonly ai = signal<AiSuggestionView | null>(null);
   readonly aiLoading = signal(false);
   readonly aiError = signal("");
+  readonly notes = signal("");
+  readonly notesMaxLength = NOTES_MAX_LENGTH;
+
+  readonly historyLimit = HISTORY_LIMIT;
+  readonly history = signal<Paged<AiSuggestionRun>>({
+    total: 0,
+    limit: HISTORY_LIMIT,
+    offset: 0,
+    items: [],
+  });
+  readonly selectedRunId = signal<number | null>(null);
 
   constructor() {
     this.api.pantrySuggestions().subscribe({
@@ -277,6 +400,9 @@ export class CookComponent {
         this.notify.error(error, "Could not work out what you can cook.");
       },
     });
+
+    // Shows the most recent run instead of an empty panel on arrival.
+    this.loadHistory(0);
   }
 
   amount(quantity: string, unit: Unit): string {
@@ -289,14 +415,39 @@ export class CookComponent {
     return "new idea";
   }
 
+  /**
+   * Hands a GENERATED suggestion's body to the paste-import review screen, as
+   * if it had just come back from parsing pasted text — same review, same
+   * edit-before-save trust model, nothing persisted until the cook saves it.
+   */
+  saveGenerated(title: string, body: GeneratedSuggestionBody): void {
+    void this.router.navigate(["/recipes", "import"], {
+      state: {
+        aiDraft: {
+          title,
+          servings: body.servings,
+          ingredients: body.ingredients,
+          steps: body.steps,
+          ignored: [],
+        },
+      },
+    });
+  }
+
   askAi(): void {
     this.aiLoading.set(true);
     this.aiError.set("");
 
-    this.api.aiSuggestions().subscribe({
+    const notes = this.notes().trim();
+
+    this.api.aiSuggestions(notes ? { notes } : {}).subscribe({
       next: (result) => {
         this.ai.set(result);
+        this.selectedRunId.set(null);
         this.aiLoading.set(false);
+        // The fresh run is now persisted; refresh the list so it shows up
+        // (and gets highlighted once it does, as the newest item on page 1).
+        this.loadHistory(0);
       },
       error: (error: unknown) => {
         this.aiLoading.set(false);
@@ -309,5 +460,21 @@ export class CookComponent {
         );
       },
     });
+  }
+
+  loadHistory(offset: number): void {
+    this.api.aiSuggestionHistory({ limit: this.historyLimit, offset }).subscribe({
+      next: (page) => {
+        this.history.set(page);
+        if (offset === 0 && page.items.length) this.selectRun(page.items[0]);
+      },
+      error: (error: unknown) =>
+        this.notify.error(error, "Could not load past suggestions."),
+    });
+  }
+
+  selectRun(run: AiSuggestionRun): void {
+    this.selectedRunId.set(run.id);
+    this.ai.set({ ok: run.ok, reason: run.reason, ai: run.ai, usage: run.usage });
   }
 }

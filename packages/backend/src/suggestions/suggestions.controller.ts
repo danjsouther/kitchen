@@ -1,7 +1,11 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 
 import { AiSuggestionsService } from './ai-suggestions.service';
-import { AiSuggestionDto, PantrySuggestionQueryDto } from './dto/suggestions.dto';
+import {
+  AiSuggestionDto,
+  AiSuggestionHistoryQueryDto,
+  PantrySuggestionQueryDto,
+} from './dto/suggestions.dto';
 import { SuggestionsService } from './suggestions.service';
 
 @Controller('suggestions')
@@ -27,5 +31,17 @@ export class SuggestionsController {
   @HttpCode(HttpStatus.OK)
   fromAi(@Body() dto: AiSuggestionDto) {
     return this.ai.suggest(dto);
+  }
+
+  /** Past runs, newest first — what the household already paid for. */
+  @Get('ai/history')
+  history(@Query() query: AiSuggestionHistoryQueryDto) {
+    return this.ai.history(query.limit, query.offset);
+  }
+
+  /** Cumulative spend across every persisted run. */
+  @Get('ai/usage')
+  usage() {
+    return this.ai.usageSummary();
   }
 }

@@ -28,7 +28,14 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { IngredientPickerComponent } from "../shared/ingredient-picker.component";
-import type { Ingredient, ParseResult, ParsedLine, Unit } from "../core/models";
+import { RECIPE_TYPE_OPTIONS } from "../core/models";
+import type {
+  Ingredient,
+  ParseResult,
+  ParsedLine,
+  RecipeType,
+  Unit,
+} from "../core/models";
 
 /**
  * One ingredient line on the review screen, after parse and before save.
@@ -208,6 +215,14 @@ function blankLine(groupLabel: string): DraftLine {
               <mat-error>{{ message }}</mat-error>
             }
           </mat-form-field>
+          <mat-form-field appearance="outline" class="meal">
+            <mat-label>Meal</mat-label>
+            <mat-select [formField]="draftForm.recipeType">
+              @for (option of recipeTypeOptions; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
         </div>
 
         <h2>Ingredients</h2>
@@ -386,6 +401,9 @@ function blankLine(groupLabel: string): DraftLine {
     .servings {
       width: 8rem;
     }
+    .meal {
+      width: 10rem;
+    }
     h2 {
       font-size: 1.1rem;
       font-weight: 500;
@@ -535,14 +553,18 @@ export class RecipeImportComponent {
    * Starts empty; `parse()` replaces the whole model and then `reset()`s so the
    * form does not open already showing errors on fields nobody has touched.
    */
+  readonly recipeTypeOptions = RECIPE_TYPE_OPTIONS;
+
   readonly draftModel = signal<{
     title: string;
     servings: number;
+    recipeType: RecipeType;
     ingredients: DraftLine[];
     steps: DraftStep[];
   }>({
     title: "",
     servings: 4,
+    recipeType: "ANY",
     ingredients: [],
     steps: [],
   });
@@ -582,6 +604,14 @@ export class RecipeImportComponent {
       error: (error: unknown) =>
         this.notify.error(error, "Could not load the units."),
     });
+
+    // Arriving from a "Save this recipe" action on a GENERATED AI suggestion:
+    // skip the paste step and open straight on the review screen, exactly as
+    // if this had just come back from parse().
+    const state = this.router.getCurrentNavigation()?.extras.state as
+      | { aiDraft?: ParseResult }
+      | undefined;
+    if (state?.aiDraft) this.applyParsed(state.aiDraft);
   }
 
   /** The first message worth showing, once the user has actually been there. */
@@ -602,15 +632,7 @@ export class RecipeImportComponent {
     this.busy.set(true);
     this.api.parseRecipe(this.pasteModel().text).subscribe({
       next: (result) => {
-        this.parsed.set(result);
-        this.draftModel.set({
-          title: result.title ?? "",
-          servings: result.servings ?? 4,
-          ingredients: result.ingredients.map(lineFromParsed),
-          steps: result.steps.map((step) => ({ key: nextKey++, text: step.text })),
-        });
-        // Clears touched/dirty so the review does not open already in error.
-        this.draftForm().reset();
+        this.applyParsed(result);
         this.busy.set(false);
       },
       error: (error: unknown) => {
@@ -620,11 +642,26 @@ export class RecipeImportComponent {
     });
   }
 
+  /** Opens the review screen on a parse result, from a paste or an AI draft. */
+  private applyParsed(result: ParseResult): void {
+    this.parsed.set(result);
+    this.draftModel.set({
+      title: result.title ?? "",
+      servings: result.servings ?? 4,
+      recipeType: "ANY",
+      ingredients: result.ingredients.map(lineFromParsed),
+      steps: result.steps.map((step) => ({ key: nextKey++, text: step.text })),
+    });
+    // Clears touched/dirty so the review does not open already in error.
+    this.draftForm().reset();
+  }
+
   startOver(): void {
     this.parsed.set(null);
     this.draftModel.set({
       title: "",
       servings: 4,
+      recipeType: "ANY",
       ingredients: [],
       steps: [],
     });
@@ -811,6 +848,7 @@ export class RecipeImportComponent {
     const payload = {
       title: draft.title.trim() || "Untitled recipe",
       servings: Number(draft.servings) || 4,
+      recipeType: draft.recipeType,
       ingredients: draft.ingredients.map((line) => ({
         ...(line.ingredientId ? { ingredientId: line.ingredientId } : {}),
         rawText: line.rawText.trim() || line.name.trim(),

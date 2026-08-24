@@ -57,6 +57,18 @@ enum TagKind {
   FREE
 }
 
+/// What meal a recipe suits. Distinct from MealSlot (a calendar time-of-day):
+/// DESSERT is a course, not a slot to plan a whole day around, and ANY is a
+/// real "no restriction" value here rather than an absence.
+enum RecipeType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  DESSERT
+  SNACK
+  ANY
+}
+
 /// Movement kinds in the append-only pantry ledger.
 enum TxKind {
   PURCHASE
@@ -119,6 +131,7 @@ model Household {
   priceObservations PriceObservation[]
   productBindings   ProductBinding[]
   scanQueueEntries  ScanQueueEntry[]
+  aiSuggestions     AiSuggestion[]
 
   @@map("household")
 }
@@ -367,6 +380,7 @@ model Recipe {
   servings    Int
   prepMinutes Int?
   cookMinutes Int?
+  recipeType  RecipeType @default(ANY)
   /// Set by a future URL import; unused in v1 but recorded when known.
   sourceUrl   String?
   sourceNote  String?
@@ -465,10 +479,14 @@ model RecipeTag {
 // ---------------------------------------------------------------------------
 
 model StorageLocation {
-  id          Int    @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   householdId Int
   name        String
-  sortOrder   Int    @default(0)
+  sortOrder   Int     @default(0)
+  /// The place a new pantry item's location defaults to. At most one per
+  /// household — enforced in LocationsService, not the schema, since Prisma
+  /// cannot express a partial unique index here.
+  isDefault   Boolean @default(false)
 
   household Household    @relation(fields: [householdId], references: [id])
   items     PantryItem[]
@@ -757,4 +775,32 @@ model PriceObservation {
   @@index([householdId, productId, observedOn])
   @@index([receiveSessionId])
   @@map("price_observation")
+}
+
+// ---------------------------------------------------------------------------
+// AI suggestions
+// ---------------------------------------------------------------------------
+
+/// One persisted AI suggestion run. The household paid Anthropic for it, so it
+/// is kept even though nothing here can be recomputed for free the way the
+/// deterministic pantry match can.
+model AiSuggestion {
+  id              Int      @id @default(autoincrement())
+  householdId     Int
+  createdOn       DateTime @default(now())
+  ok              Boolean
+  reason          String?
+  /// The `ai` field of AiSuggestionResult (summary + suggestions[]) — shape
+  /// guaranteed by SuggestionSchema. Null when ok is false: a refusal or an
+  /// unparseable response has nothing usable to show, only that it happened
+  /// and what it cost.
+  result          Json?
+  inputTokens     Int
+  outputTokens    Int
+  cacheReadTokens Int
+
+  household Household @relation(fields: [householdId], references: [id])
+
+  @@index([householdId, createdOn])
+  @@map("ai_suggestion")
 }

@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   inject,
   input,
   signal,
@@ -16,7 +17,9 @@ import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
-import type { Recipe, RecipeIngredient } from "../core/models";
+import { CookConfirmComponent } from "../plan/cook-confirm.component";
+import { recipeTypeLabel } from "../core/models";
+import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
 
 @Component({
   selector: "app-recipe-detail",
@@ -28,6 +31,7 @@ import type { Recipe, RecipeIngredient } from "../core/models";
     MatIconModule,
     MatProgressBarModule,
     MatTooltipModule,
+    CookConfirmComponent,
   ],
   template: `
     @if (loading()) {
@@ -80,6 +84,9 @@ import type { Recipe, RecipeIngredient } from "../core/models";
               {{ r.cookMinutes }} min cook</span
             >
           }
+          @if (r.recipeType !== "ANY") {
+            <span class="tag">{{ recipeTypeLabel(r.recipeType) }}</span>
+          }
           @for (tag of r.tags; track tag.id) {
             <span class="tag">{{ tag.name }}</span>
           }
@@ -113,8 +120,24 @@ import type { Recipe, RecipeIngredient } from "../core/models";
                 Reset
               </button>
             }
+            <button
+              mat-flat-button
+              [disabled]="busy() || cooking()"
+              (click)="cooking.set(true)"
+            >
+              <mat-icon>restaurant</mat-icon>
+              Cook
+            </button>
           </mat-card-content>
         </mat-card>
+
+        @if (cooking() && cookTarget(); as target) {
+          <app-cook-confirm
+            [target]="target"
+            (cooked)="onCooked($event)"
+            (cancelled)="cooking.set(false)"
+          />
+        }
 
         <div class="columns">
           <section>
@@ -281,14 +304,33 @@ export class RecipeDetailComponent {
   /** Exposed for the template's shared-catalog checks. */
   readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
 
+  /** Exposed for the template. */
+  readonly recipeTypeLabel = recipeTypeLabel;
+
   /** Bound from the route by `withComponentInputBinding`. */
   readonly id = input.required<string>();
+
+  /** Bound from the `?cook=1` query parameter by `withComponentInputBinding`. */
+  readonly cook = input<string>();
 
   readonly recipe = signal<Recipe | null>(null);
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly servings = signal(0);
   readonly baseServings = signal(0);
+  readonly cooking = signal(false);
+
+  /**
+   * The currently scaled serving count, not the recipe's own — cooking
+   * spontaneously has no planned meal to hold a serving override, so this is
+   * the one chance to carry what's on screen into the deduction.
+   */
+  readonly cookTarget = computed(() => {
+    const r = this.recipe();
+    return r
+      ? { kind: "recipe" as const, recipe: { id: r.id, title: r.title, servings: this.servings() } }
+      : null;
+  });
 
   constructor() {
     queueMicrotask(() => this.load());
@@ -423,11 +465,22 @@ export class RecipeDetailComponent {
         this.servings.set(recipe.servings);
         this.baseServings.set(recipe.servings);
         this.loading.set(false);
+        if (this.cook() === "1") this.cooking.set(true);
       },
       error: (error: unknown) => {
         this.loading.set(false);
         this.notify.error(error, "Could not load that recipe.");
       },
     });
+  }
+
+  onCooked(report: CookReport): void {
+    this.cooking.set(false);
+    const short = report.shortfalls.length;
+    this.notify.success(
+      short
+        ? `Cooked. ${short} ingredient(s) were short — check the pantry.`
+        : "Cooked, and the pantry has been updated.",
+    );
   }
 }

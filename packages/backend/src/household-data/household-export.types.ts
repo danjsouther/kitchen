@@ -10,6 +10,8 @@
  * household's database under the same name/slug/barcode.
  */
 
+import type { RecipeType } from '@kitchen/shared-types';
+
 /** Points at a household-owned row exported elsewhere in this same file. */
 export interface LocalRef {
   key: number;
@@ -66,6 +68,7 @@ export interface ExportedStorageLocation {
   key: number;
   name: string;
   sortOrder: number;
+  isDefault: boolean;
 }
 
 export interface ExportedTag {
@@ -99,6 +102,7 @@ export interface ExportedRecipe {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  recipeType: RecipeType;
   sourceUrl: string | null;
   sourceNote: string | null;
   imagePath: string | null;

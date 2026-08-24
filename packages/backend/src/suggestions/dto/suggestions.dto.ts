@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class PantrySuggestionQueryDto {
   /** Only recipes missing at most this many ingredients. Zero means "cookable now". */
@@ -33,4 +33,25 @@ export class AiSuggestionDto {
   @Min(1)
   @Max(1000)
   servings?: number;
+
+  /** Free-text steer, e.g. "i want a salmon dish for breakfast". */
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
+  notes?: string;
+}
+
+export class AiSuggestionHistoryQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

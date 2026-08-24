@@ -17,6 +17,7 @@ import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { PagerComponent } from "../shared/pager.component";
+import { recipeTypeLabel } from "../core/models";
 import type { RecipeSummary } from "../core/models";
 
 const PAGE_LIMIT = 20;
@@ -84,12 +85,24 @@ const PAGE_LIMIT = 20;
         @for (recipe of recipes(); track recipe.id) {
           <mat-card class="card" [routerLink]="['/recipes', recipe.id]">
             <mat-card-content>
-              <h2>
-                {{ recipe.title }}
-                @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
-                  <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
-                }
-              </h2>
+              <div class="card-head">
+                <h2>
+                  {{ recipe.title }}
+                  @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
+                    <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
+                  }
+                </h2>
+                <button
+                  mat-icon-button
+                  [routerLink]="['/recipes', recipe.id]"
+                  [queryParams]="{ cook: 1 }"
+                  (click)="$event.stopPropagation()"
+                  [attr.aria-label]="'Cook ' + recipe.title"
+                  matTooltip="Cook this recipe"
+                >
+                  <mat-icon>restaurant</mat-icon>
+                </button>
+              </div>
               @if (recipe.description) {
                 <p class="muted desc">{{ recipe.description }}</p>
               }
@@ -98,6 +111,9 @@ const PAGE_LIMIT = 20;
                 <span>{{ recipe.ingredientCount }} ingredients</span>
                 @if (totalMinutes(recipe); as minutes) {
                   <span>{{ minutes }} min</span>
+                }
+                @if (recipe.recipeType !== "ANY") {
+                  <span>{{ recipeTypeLabel(recipe.recipeType) }}</span>
                 }
               </div>
               @if (recipe.tags.length) {
@@ -133,6 +149,12 @@ const PAGE_LIMIT = 20;
     }
     .card {
       cursor: pointer;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
     }
     h2 {
       margin: 0 0 0.35rem;
@@ -171,6 +193,9 @@ const PAGE_LIMIT = 20;
 export class RecipeListComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+
+  /** Exposed for the template. */
+  readonly recipeTypeLabel = recipeTypeLabel;
 
   /** Exposed for the template's shared-catalog badge. */
   readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
