@@ -81,7 +81,7 @@ export class ParserService {
    * built from the household's own catalog so a unit they invented is understood
    * on the very next paste.
    */
-  private async unitLexicon(): Promise<UnitLexicon> {
+  async unitLexicon(): Promise<UnitLexicon> {
     const units = await this.db.unit.findMany({
       select: { id: true, name: true, plural: true, abbrev: true },
     });
@@ -124,6 +124,60 @@ export class ParserService {
   }
 
   /**
+   * Resolves an AI-generated recipe's own ingredient lines against the
+   * catalog.
+   *
+   * Unlike `parse()`, the caller here already split each line into
+   * quantity/unit/name/preparation itself (the model emits structured
+   * fields, not free text), so this skips `parseIngredientLine`'s regex
+   * splitting and goes straight to the same catalog match `resolveLine` uses
+   * for a pasted line. The return shape is deliberately identical, so the
+   * frontend's review screen cannot tell an AI-authored line from a pasted
+   * one.
+   */
+  async resolveGeneratedIngredients(
+    lines: ReadonlyArray<{
+      quantity: string;
+      unit: string | null;
+      name: string;
+      preparation: string | null;
+    }>,
+  ) {
+    const units = await this.unitLexicon();
+
+    return Promise.all(
+      lines.map(async (line) => {
+        const match = await this.matchName(line.name);
+        const unitId = line.unit ? (units.get(line.unit.trim().toLowerCase()) ?? null) : null;
+
+        // Same signal as resolveLine's rule, plus a unit token that did not
+        // resolve — resolveLine never sees that case, since a pasted line
+        // with an unrecognised unit token just folds it into the name.
+        const needsReview =
+          match.kind === MatchKind.NONE ||
+          match.kind === MatchKind.FUZZY ||
+          (line.unit !== null && unitId === null);
+
+        return {
+          rawText: composeRawText(line),
+          quantity: line.quantity,
+          unitId,
+          unitToken: line.unit,
+          name: line.name,
+          preparation: line.preparation,
+          groupLabel: null,
+          optional: false,
+          isRange: false,
+          inferredQuantity: false,
+          ingredientId: match.best?.ingredientId ?? null,
+          match,
+          needsReview,
+        };
+      }),
+    );
+  }
+
+  /**
    * Resolves one name against the catalog, most trustworthy route first.
    *
    * Exact slug, then alias, then the singularised form, then trigram similarity.
@@ -131,7 +185,7 @@ export class ParserService {
    * means a real catalog entry is never passed over in favour of something that
    * merely looks similar.
    */
-  private async matchName(name: string): Promise<{
+  async matchName(name: string): Promise<{
     kind: MatchKind;
     confidence: number;
     best: CatalogMatch | null;
@@ -254,4 +308,15 @@ function preferOwnIngredient<T extends { householdId: number }>(
   rows: readonly T[],
 ): T | undefined {
   return rows.find((row) => row.householdId !== SYSTEM_HOUSEHOLD_ID) ?? rows[0];
+}
+
+/** Rebuilds a display line from an AI-generated ingredient's split fields. */
+function composeRawText(line: {
+  quantity: string;
+  unit: string | null;
+  name: string;
+  preparation: string | null;
+}): string {
+  const base = [line.quantity, line.unit, line.name].filter(Boolean).join(' ');
+  return line.preparation ? `${base}, ${line.preparation}` : base;
 }

@@ -49,9 +49,25 @@ function makeService(config: unknown, data: Partial<Record<string, unknown>> = {
     expiringSoon: jest.fn().mockResolvedValue(data.expiring ?? []),
   };
   const aiConfig = { resolveKey: jest.fn().mockResolvedValue(config) };
+  const parser = {
+    resolveGeneratedIngredients: jest.fn().mockImplementation((lines: unknown[]) =>
+      Promise.resolve(
+        lines.map((generatedLine) => ({
+          ...(generatedLine as object),
+          ingredientId: null,
+          match: { kind: 'NONE', confidence: 0, best: null, alternatives: [] },
+          needsReview: true,
+        })),
+      ),
+    ),
+  };
 
-  const service = new AiSuggestionsService(suggestions as never, aiConfig as never);
-  return { service, suggestions, aiConfig };
+  const service = new AiSuggestionsService(
+    suggestions as never,
+    aiConfig as never,
+    parser as never,
+  );
+  return { service, suggestions, aiConfig, parser };
 }
 
 describe('AiSuggestionsService.suggest', () => {
@@ -203,5 +219,70 @@ describe('recipe id reconciliation', () => {
     });
 
     expect(result.suggestions[0]).toMatchObject({ recipeId: null, kind: 'GENERATED' });
+  });
+});
+
+describe('resolving a GENERATED suggestion body', () => {
+  /** `resolveBodies` is private; exercised through the same path the service uses. */
+  function resolveBodies(parsed: unknown) {
+    const { service, parser } = makeService(null);
+    return (
+      service as unknown as {
+        resolveBodies: (p: unknown) => Promise<{ suggestions: unknown[] }>;
+      }
+    ).resolveBodies(parsed).then((result) => ({ result, parser }));
+  }
+
+  it('resolves a GENERATED suggestion body against the catalog', async () => {
+    const { result, parser } = await resolveBodies({
+      summary: 's',
+      suggestions: [
+        {
+          kind: 'GENERATED',
+          recipeId: null,
+          title: 'Improvised soup',
+          body: {
+            servings: 2,
+            ingredients: [
+              { quantity: '1', unit: 'cup', name: 'broth', preparation: null },
+            ],
+            steps: ['Heat the broth.'],
+          },
+        },
+      ],
+    });
+
+    expect(parser.resolveGeneratedIngredients).toHaveBeenCalledWith([
+      { quantity: '1', unit: 'cup', name: 'broth', preparation: null },
+    ]);
+    expect(result.suggestions[0]).toMatchObject({
+      body: {
+        servings: 2,
+        ingredients: [
+          expect.objectContaining({ name: 'broth', ingredientId: null, needsReview: true }),
+        ],
+        steps: [{ text: 'Heat the broth.' }],
+      },
+    });
+  });
+
+  it('does not resolve or touch a null body', async () => {
+    const { result, parser } = await resolveBodies({
+      summary: 's',
+      suggestions: [{ kind: 'SAVED_RECIPE', recipeId: 7, title: 'Bread', body: null }],
+    });
+
+    expect(parser.resolveGeneratedIngredients).not.toHaveBeenCalled();
+    expect(result.suggestions[0]).toMatchObject({ body: null });
+  });
+
+  it('leaves a body-less GENERATED suggestion alone, e.g. one reconciled from a dead recipeId', async () => {
+    const { result, parser } = await resolveBodies({
+      summary: 's',
+      suggestions: [{ kind: 'GENERATED', recipeId: null, title: 'Ghost', body: null }],
+    });
+
+    expect(parser.resolveGeneratedIngredients).not.toHaveBeenCalled();
+    expect(result.suggestions[0]).toMatchObject({ body: null });
   });
 });

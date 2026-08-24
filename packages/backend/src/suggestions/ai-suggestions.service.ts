@@ -4,6 +4,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 
 import { AiConfigService } from '../households/ai-config.service';
+import { ParserService } from '../parser/parser.service';
 import { SuggestionsService } from './suggestions.service';
 import { rankMatches, type RecipeMatch } from './pantry-match';
 import type { AiSuggestionDto } from './dto/suggestions.dto';
@@ -11,11 +12,15 @@ import type { AiSuggestionDto } from './dto/suggestions.dto';
 /**
  * The response contract.
  *
- * Note what is *absent*: there is no field anywhere for a quantity, an amount on
- * hand, or a count of what is missing. That is the grounding rule expressed in
- * the schema rather than only in the prompt — the deterministic match is the
- * source of truth about numbers, and the model is given nowhere to assert a
- * different one even if it wanted to.
+ * Note what is *absent* from every field but `body`: there is no quantity, no
+ * amount on hand, no count of what is missing. That is the grounding rule
+ * expressed in the schema rather than only in the prompt — the deterministic
+ * match is the source of truth about an *existing* recipe's numbers, and the
+ * model is given nowhere to assert a different one even if it wanted to.
+ *
+ * `body` is the one deliberate exception: a GENERATED dish has no existing
+ * recipe for MATCHES to be grounded on, so the model is expected to invent
+ * its own quantities there — see SYSTEM_PROMPT.
  */
 const SuggestionSchema = z.object({
   suggestions: z
@@ -51,6 +56,46 @@ const SuggestionSchema = z.object({
         usesExpiring: z
           .array(z.string())
           .describe('Names of soon-to-expire ingredients this uses up.'),
+        body: z
+          .object({
+            servings: z.number().int().min(1).max(50),
+            ingredients: z
+              .array(
+                z.object({
+                  quantity: z
+                    .string()
+                    .describe(
+                      'Decimal string, e.g. "2" or "0.5". Never a fraction character or a range.',
+                    ),
+                  unit: z
+                    .string()
+                    .nullable()
+                    .describe(
+                      'Unit as written, e.g. "cup", "tsp", "clove". Null when the ' +
+                        'ingredient has no unit, e.g. "3 eggs".',
+                    ),
+                  name: z
+                    .string()
+                    .describe('The ingredient itself — no quantity, unit or preparation.'),
+                  preparation: z
+                    .string()
+                    .nullable()
+                    .describe('How it is prepared, e.g. "diced", "melted". Null if not applicable.'),
+                }),
+              )
+              .min(1)
+              .max(40),
+            steps: z
+              .array(z.string())
+              .min(1)
+              .max(30)
+              .describe('Ordered instructions, one plain imperative sentence per entry.'),
+          })
+          .nullable()
+          .describe(
+            'A full recipe body, good enough to cook from. Required when kind is ' +
+              'GENERATED; null for every other kind.',
+          ),
       }),
     )
     .describe('Ranked best first. Between one and six.'),
@@ -76,6 +121,8 @@ THE RULE THAT MATTERS MOST: the arithmetic in MATCHES is already correct and is 
 
 An ingredient listed as "unknown" in MATCHES is one the system could not measure — not one they are out of. Treat it as uncertain and say so rather than assuming either way.
 
+That rule governs MATCHES and any SAVED_RECIPE or SUBSTITUTION suggestion, because those numbers are already computed and yours to report, not invent. A GENERATED suggestion is different: nothing about it exists yet, so when kind is GENERATED you must write a real, cookable body — every ingredient with its own quantity and unit, and ordered steps — good enough to actually cook from. Keep quantities plain decimals ("2", "0.5"), never a fraction character or a range. Leave body null for every other kind.
+
 How to choose:
 1. Prefer recipes they can cook now, especially ones using EXPIRING items.
 2. Then recipes one or two ingredients short where a pantry item genuinely substitutes. Only suggest a substitution you would actually stand behind — say plainly how the dish will differ.
@@ -93,6 +140,7 @@ export class AiSuggestionsService {
   constructor(
     private readonly suggestions: SuggestionsService,
     private readonly aiConfig: AiConfigService,
+    private readonly parser: ParserService,
   ) {}
 
   /**
@@ -168,10 +216,12 @@ export class AiSuggestionsService {
         return this.degrade(matches, 'The model returned something unreadable.');
       }
 
+      const reconciled = this.reconcile(response.parsed_output as AiSuggestions, recipes);
+
       return {
         ok: true as const,
         deterministic: matches.slice(0, MAX_MATCHES_IN_PROMPT),
-        ai: this.reconcile(response.parsed_output as AiSuggestions, recipes),
+        ai: await this.resolveBodies(reconciled),
         usage: {
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
@@ -209,6 +259,39 @@ export class AiSuggestionsService {
           : suggestion,
       ),
     };
+  }
+
+  /**
+   * Resolves a GENERATED suggestion's ingredient names/units against the
+   * catalog, the same way a pasted recipe's lines are resolved.
+   *
+   * Runs after `reconcile()` on purpose: a suggestion `reconcile()` demoted
+   * to GENERATED because its recipeId was invented has no body — the model
+   * believed it was pointing at a real recipe and never wrote one — so it
+   * passes through untouched here, and the frontend simply has nothing to
+   * offer a save action for.
+   */
+  private async resolveBodies(parsed: AiSuggestions) {
+    const suggestions = await Promise.all(
+      parsed.suggestions.map(async (suggestion) => {
+        if (suggestion.kind !== 'GENERATED' || !suggestion.body) return suggestion;
+
+        const ingredients = await this.parser.resolveGeneratedIngredients(
+          suggestion.body.ingredients,
+        );
+
+        return {
+          ...suggestion,
+          body: {
+            servings: suggestion.body.servings,
+            ingredients,
+            steps: suggestion.body.steps.map((text) => ({ text })),
+          },
+        };
+      }),
+    );
+
+    return { ...parsed, suggestions };
   }
 
   /** Falls back to the deterministic answer, saying plainly why. */

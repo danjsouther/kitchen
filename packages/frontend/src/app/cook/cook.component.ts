@@ -3,7 +3,7 @@ import {
   inject,
   signal,
 } from "@angular/core";
-import { RouterLink } from "@angular/router";
+import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatChipsModule } from "@angular/material/chips";
@@ -16,6 +16,10 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { amountWithUnit } from "../shared/format";
 import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
+
+type GeneratedSuggestionBody = NonNullable<
+  NonNullable<AiSuggestionResult["ai"]>["suggestions"][number]["body"]
+>;
 
 @Component({
   selector: "app-cook",
@@ -162,6 +166,16 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
 
                       <p class="why">{{ suggestion.why }}</p>
 
+                      @if (suggestion.body) {
+                        <button
+                          mat-button
+                          (click)="saveGenerated(suggestion.title, suggestion.body)"
+                        >
+                          <mat-icon>bookmark_add</mat-icon>
+                          Save this recipe
+                        </button>
+                      }
+
                       @for (swap of suggestion.substitutions; track $index) {
                         <div class="swap">
                           <strong>{{ swap.missing }}</strong> →
@@ -258,6 +272,7 @@ import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
 export class CookComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+  private readonly router = inject(Router);
 
   readonly matches = signal<RecipeMatch[]>([]);
   readonly loading = signal(true);
@@ -287,6 +302,25 @@ export class CookComponent {
     if (kind === "SAVED_RECIPE") return "your recipe";
     if (kind === "SUBSTITUTION") return "with a swap";
     return "new idea";
+  }
+
+  /**
+   * Hands a GENERATED suggestion's body to the paste-import review screen, as
+   * if it had just come back from parsing pasted text — same review, same
+   * edit-before-save trust model, nothing persisted until the cook saves it.
+   */
+  saveGenerated(title: string, body: GeneratedSuggestionBody): void {
+    void this.router.navigate(["/recipes", "import"], {
+      state: {
+        aiDraft: {
+          title,
+          servings: body.servings,
+          ingredients: body.ingredients,
+          steps: body.steps,
+          ignored: [],
+        },
+      },
+    });
   }
 
   askAi(): void {
