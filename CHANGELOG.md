@@ -4,6 +4,19 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Fixed — Expired pantry stock no longer counts toward suggestions (2026-08-24)
+
+`pantryBalances()` — shared by the pantry match, AI suggestions and
+shopping-list generation, so every screen agrees on stock — counted every
+pantry lot regardless of expiry. A recipe could show as cookable, or a
+household could be told it already had enough of something and skip
+restocking, using a lot that had already gone off. `expiringSoon()` had the
+same gap the other direction: an item that expired weeks ago still matched
+"expires within 7 days" and could be handed to the AI as "going off soon"
+alongside things genuinely about to turn. Both queries now exclude a lot whose
+`expiresOn` is in the past. Deduction and cooking are unaffected — they use a
+separate query and still allow using up an expired lot on purpose.
+
 ### Added — Persist AI cook suggestions and what they cost (2026-08-24)
 
 Asking the Ideas tab for suggestions used to be thrown away the moment you left
