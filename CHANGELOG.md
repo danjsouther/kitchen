@@ -4,6 +4,24 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Persist AI cook suggestions and what they cost (2026-08-24)
+
+Asking the Ideas tab for suggestions used to be thrown away the moment you left
+`/cook` or reloaded — a paid Anthropic call with no way to see it again except
+paying for it twice, and no way to see what the household had spent overall.
+Every run is now persisted per household, refusals and unparseable responses
+included, since those still cost tokens even with nothing usable to show. The
+Ideas tab shows the most recent run on arrival instead of an empty panel, with
+a "Past suggestions" list to page back through history; Settings' AI section
+shows cumulative usage to date. A suggestion pointing at a recipe that's since
+been archived is caught on read and shown as plain text rather than a dead
+link, without relabelling what kind of suggestion it was.
+
+Also raised the request's token budget and added a check for a response cut
+off mid-generation: a GENERATED suggestion's recipe body could make responses
+large enough to hit the old ceiling, which could silently come back as a
+technically valid but empty result instead of an obvious failure to retry.
+
 ### Added — AI-generated suggestions come back as a full recipe, not just a name (2026-08-23)
 
 A GENERATED suggestion in the Ideas tab used to be a dish name and a sentence —

@@ -205,7 +205,7 @@ describe('model classification', () => {
       'Tag', 'RecipeTag', 'StorageLocation', 'PantryItem', 'PantryPar',
       'PantryTransaction', 'PlannedMeal', 'CookSession', 'Store', 'StoreAisle',
       'ShoppingList', 'ShoppingListItem', 'ReceiveSession', 'PriceObservation',
-      'Product', 'ProductBinding', 'ScanQueueEntry',
+      'Product', 'ProductBinding', 'ScanQueueEntry', 'AiSuggestion',
     ];
     const classified = new Set([
       ...TENANT_SCOPED_MODELS,

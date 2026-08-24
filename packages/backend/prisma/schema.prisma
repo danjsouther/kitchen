@@ -119,6 +119,7 @@ model Household {
   priceObservations PriceObservation[]
   productBindings   ProductBinding[]
   scanQueueEntries  ScanQueueEntry[]
+  aiSuggestions     AiSuggestion[]
 
   @@map("household")
 }
@@ -761,4 +762,32 @@ model PriceObservation {
   @@index([householdId, productId, observedOn])
   @@index([receiveSessionId])
   @@map("price_observation")
+}
+
+// ---------------------------------------------------------------------------
+// AI suggestions
+// ---------------------------------------------------------------------------
+
+/// One persisted AI suggestion run. The household paid Anthropic for it, so it
+/// is kept even though nothing here can be recomputed for free the way the
+/// deterministic pantry match can.
+model AiSuggestion {
+  id              Int      @id @default(autoincrement())
+  householdId     Int
+  createdOn       DateTime @default(now())
+  ok              Boolean
+  reason          String?
+  /// The `ai` field of AiSuggestionResult (summary + suggestions[]) — shape
+  /// guaranteed by SuggestionSchema. Null when ok is false: a refusal or an
+  /// unparseable response has nothing usable to show, only that it happened
+  /// and what it cost.
+  result          Json?
+  inputTokens     Int
+  outputTokens    Int
+  cacheReadTokens Int
+
+  household Household @relation(fields: [householdId], references: [id])
+
+  @@index([householdId, createdOn])
+  @@map("ai_suggestion")
 }

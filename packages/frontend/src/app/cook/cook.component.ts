@@ -3,6 +3,7 @@ import {
   inject,
   signal,
 } from "@angular/core";
+import { DatePipe } from "@angular/common";
 import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -14,16 +15,32 @@ import { MatTooltipModule } from "@angular/material/tooltip";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
+import { PagerComponent } from "../shared/pager.component";
 import { amountWithUnit } from "../shared/format";
-import type { AiSuggestionResult, RecipeMatch, Unit } from "../core/models";
+import type { AiSuggestionResult, AiSuggestionRun, Paged, RecipeMatch, Unit } from "../core/models";
 
 type GeneratedSuggestionBody = NonNullable<
   NonNullable<AiSuggestionResult["ai"]>["suggestions"][number]["body"]
 >;
 
+/**
+ * What the Ideas tab actually renders — a live `askAi()` result or a
+ * persisted `AiSuggestionRun` both satisfy this structurally, so selecting a
+ * past run needs no template changes.
+ */
+interface AiSuggestionView {
+  ok: boolean;
+  reason?: string;
+  ai: AiSuggestionResult["ai"];
+  usage?: AiSuggestionResult["usage"];
+}
+
+const HISTORY_LIMIT = 10;
+
 @Component({
   selector: "app-cook",
   imports: [
+    DatePipe,
     RouterLink,
     MatButtonModule,
     MatCardModule,
@@ -32,6 +49,7 @@ type GeneratedSuggestionBody = NonNullable<
     MatProgressBarModule,
     MatTabsModule,
     MatTooltipModule,
+    PagerComponent,
   ],
   template: `
     <div class="page">
@@ -205,6 +223,40 @@ type GeneratedSuggestionBody = NonNullable<
                 }
               }
             }
+
+            @if (history().items.length) {
+              <h2>Past suggestions</h2>
+
+              <div class="history-list">
+                @for (run of history().items; track run.id) {
+                  <button
+                    type="button"
+                    class="history-row"
+                    [class.current]="run.id === selectedRunId()"
+                    (click)="selectRun(run)"
+                  >
+                    <span class="grow">
+                      <span [class.warn-text]="!run.ok">
+                        {{ run.ok ? (run.ai?.summary ?? "Suggestions") : (run.reason ?? "Failed") }}
+                      </span>
+                      <div class="muted small">
+                        {{ run.createdOn | date: "d MMM y, HH:mm" }}
+                      </div>
+                    </span>
+                    <span class="muted small">
+                      {{ run.usage.inputTokens }} in / {{ run.usage.outputTokens }} out
+                    </span>
+                  </button>
+                }
+              </div>
+
+              <app-pager
+                [total]="history().total"
+                [limit]="historyLimit"
+                [offset]="history().offset"
+                (offsetChange)="loadHistory($event)"
+              />
+            }
           </div>
         </mat-tab>
       </mat-tab-group>
@@ -267,6 +319,29 @@ type GeneratedSuggestionBody = NonNullable<
     .notice {
       background: var(--mat-sys-surface-container-high);
     }
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .history-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: 8px;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+    }
+    .history-row.current {
+      background: var(--mat-sys-secondary-container);
+      border-color: transparent;
+    }
   `,
 })
 export class CookComponent {
@@ -277,9 +352,18 @@ export class CookComponent {
   readonly matches = signal<RecipeMatch[]>([]);
   readonly loading = signal(true);
 
-  readonly ai = signal<AiSuggestionResult | null>(null);
+  readonly ai = signal<AiSuggestionView | null>(null);
   readonly aiLoading = signal(false);
   readonly aiError = signal("");
+
+  readonly historyLimit = HISTORY_LIMIT;
+  readonly history = signal<Paged<AiSuggestionRun>>({
+    total: 0,
+    limit: HISTORY_LIMIT,
+    offset: 0,
+    items: [],
+  });
+  readonly selectedRunId = signal<number | null>(null);
 
   constructor() {
     this.api.pantrySuggestions().subscribe({
@@ -292,6 +376,9 @@ export class CookComponent {
         this.notify.error(error, "Could not work out what you can cook.");
       },
     });
+
+    // Shows the most recent run instead of an empty panel on arrival.
+    this.loadHistory(0);
   }
 
   amount(quantity: string, unit: Unit): string {
@@ -330,7 +417,11 @@ export class CookComponent {
     this.api.aiSuggestions().subscribe({
       next: (result) => {
         this.ai.set(result);
+        this.selectedRunId.set(null);
         this.aiLoading.set(false);
+        // The fresh run is now persisted; refresh the list so it shows up
+        // (and gets highlighted once it does, as the newest item on page 1).
+        this.loadHistory(0);
       },
       error: (error: unknown) => {
         this.aiLoading.set(false);
@@ -343,5 +434,21 @@ export class CookComponent {
         );
       },
     });
+  }
+
+  loadHistory(offset: number): void {
+    this.api.aiSuggestionHistory({ limit: this.historyLimit, offset }).subscribe({
+      next: (page) => {
+        this.history.set(page);
+        if (offset === 0 && page.items.length) this.selectRun(page.items[0]);
+      },
+      error: (error: unknown) =>
+        this.notify.error(error, "Could not load past suggestions."),
+    });
+  }
+
+  selectRun(run: AiSuggestionRun): void {
+    this.selectedRunId.set(run.id);
+    this.ai.set({ ok: run.ok, reason: run.reason, ai: run.ai, usage: run.usage });
   }
 }

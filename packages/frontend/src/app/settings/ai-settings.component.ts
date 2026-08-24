@@ -22,7 +22,7 @@ import { MatSelectModule } from "@angular/material/select";
 
 import { ApiService } from "../core/api.service";
 import { NotifyService, describeError } from "../core/notify.service";
-import type { AiConfig } from "../core/models";
+import type { AiConfig, AiUsageSummary } from "../core/models";
 
 @Component({
   selector: "app-ai-settings",
@@ -66,6 +66,17 @@ import type { AiConfig } from "../core/models";
                       Checked against Anthropic on
                       {{ c.verifiedOn | date: "d MMM y, HH:mm" }}
                     </div>
+                  }
+                  @if (usage(); as u) {
+                    @if (u.runCount) {
+                      <div class="muted small">
+                        Usage to date: {{ u.runCount }} call{{ u.runCount === 1 ? "" : "s" }},
+                        {{ u.inputTokens }} in / {{ u.outputTokens }} out
+                        @if (u.cacheReadTokens) {
+                          · {{ u.cacheReadTokens }} cached
+                        }
+                      </div>
+                    }
                   }
                 </span>
               </div>
@@ -173,6 +184,7 @@ export class AiSettingsComponent {
   private readonly notify = inject(NotifyService);
 
   readonly config = signal<AiConfig | null>(null);
+  readonly usage = signal<AiUsageSummary | null>(null);
   readonly busy = signal(false);
   readonly error = signal("");
 
@@ -260,6 +272,12 @@ export class AiSettingsComponent {
       },
       error: (error: unknown) =>
         this.notify.error(error, "Could not load the AI settings."),
+    });
+
+    this.api.aiUsageSummary().subscribe({
+      next: (usage) => this.usage.set(usage),
+      error: (error: unknown) =>
+        this.notify.error(error, "Could not load AI usage."),
     });
   }
 }

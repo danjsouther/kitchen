@@ -1,10 +1,11 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 
 import { AiConfigService } from '../households/ai-config.service';
 import { ParserService } from '../parser/parser.service';
+import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
 import { SuggestionsService } from './suggestions.service';
 import { rankMatches, type RecipeMatch } from './pantry-match';
 import type { AiSuggestionDto } from './dto/suggestions.dto';
@@ -105,6 +106,14 @@ const SuggestionSchema = z.object({
 export type AiSuggestions = z.infer<typeof SuggestionSchema>;
 
 /**
+ * The shape actually stored and served back: `AiSuggestions` after
+ * `resolveBodies()` has replaced each GENERATED body's raw ingredient lines
+ * with catalog-matched ones. This, not `AiSuggestions`, is what a persisted
+ * row's `result` column holds.
+ */
+type ResolvedAiSuggestions = Awaited<ReturnType<AiSuggestionsService['resolveBodies']>>;
+
+/**
  * Kept verbatim and first in the request so it can be cached across calls. The
  * minimum cacheable prefix on Opus 5 is 512 tokens; `cache_read_input_tokens` in
  * the response is what proves it is actually being reused, rather than assuming.
@@ -141,6 +150,7 @@ export class AiSuggestionsService {
     private readonly suggestions: SuggestionsService,
     private readonly aiConfig: AiConfigService,
     private readonly parser: ParserService,
+    @Inject(TENANT_PRISMA) private readonly db: TenantPrisma,
   ) {}
 
   /**
@@ -193,7 +203,10 @@ export class AiSuggestionsService {
 
       const response = await client.messages.parse({
         model: credentials.model,
-        max_tokens: 8000,
+        // A GENERATED suggestion can now carry a full recipe body (up to 40
+        // ingredients and 30 steps, across up to 6 suggestions), which needs
+        // real headroom beyond what ranking-and-a-sentence used to cost.
+        max_tokens: 16000,
         thinking: { type: 'adaptive' },
         output_config: {
           effort: credentials.effort as 'low' | 'medium' | 'high',
@@ -209,24 +222,42 @@ export class AiSuggestionsService {
         messages: [{ role: 'user', content: JSON.stringify(payload) }],
       });
 
+      const usage = {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      };
+
       if (response.stop_reason === 'refusal') {
-        return this.degrade(matches, 'The model declined to answer that request.');
+        const reason = 'The model declined to answer that request.';
+        await this.persist({ ok: false, reason, result: null, usage });
+        return this.degrade(matches, reason);
+      }
+      // A truncated response can still coincidentally satisfy the schema (an
+      // empty summary and an empty suggestions array both validate), which is
+      // worse than an outright parse failure: it looks like a real, if
+      // useless, answer rather than an obvious one to retry.
+      if (response.stop_reason === 'max_tokens') {
+        const reason = 'The response was cut off before it finished — try asking again.';
+        await this.persist({ ok: false, reason, result: null, usage });
+        return this.degrade(matches, reason);
       }
       if (!response.parsed_output) {
-        return this.degrade(matches, 'The model returned something unreadable.');
+        const reason = 'The model returned something unreadable.';
+        await this.persist({ ok: false, reason, result: null, usage });
+        return this.degrade(matches, reason);
       }
 
       const reconciled = this.reconcile(response.parsed_output as AiSuggestions, recipes);
+      const ai = await this.resolveBodies(reconciled);
+
+      await this.persist({ ok: true, reason: null, result: ai, usage });
 
       return {
         ok: true as const,
         deterministic: matches.slice(0, MAX_MATCHES_IN_PROMPT),
-        ai: await this.resolveBodies(reconciled),
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-        },
+        ai,
+        usage,
       };
     } catch (error) {
       // The key must never reach a log line or a response body.
@@ -294,6 +325,94 @@ export class AiSuggestionsService {
     return { ...parsed, suggestions };
   }
 
+  /**
+   * Records one run. The household paid for this call, refusal and unparseable
+   * output included, so it is kept even when there is nothing usable in
+   * `result` — only a network/auth failure that never reached Anthropic (the
+   * `catch` block in `suggest()`) has no usage to report and gets no row.
+   */
+  private async persist(run: {
+    ok: boolean;
+    reason: string | null;
+    result: ResolvedAiSuggestions | null;
+    usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+  }): Promise<void> {
+    await this.db.aiSuggestion.create({
+      data: {
+        ok: run.ok,
+        reason: run.reason,
+        result: run.result ?? undefined,
+        inputTokens: run.usage.inputTokens,
+        outputTokens: run.usage.outputTokens,
+        cacheReadTokens: run.usage.cacheReadTokens,
+        // householdId is stamped by the tenancy extension at query time; the
+        // generated client type does not know that (see cook.service.ts for
+        // the same pattern).
+      } as never,
+    });
+  }
+
+  /**
+   * Past runs, newest first, so the Ideas tab can show the last one on arrival
+   * and page back through the rest.
+   *
+   * Re-checks every stored `recipeId` against the recipes that are still
+   * active: `reconcile()` only ever ran once, at generation time, and a
+   * SAVED_RECIPE or SUBSTITUTION suggestion can outlive the recipe it points
+   * at if that recipe is archived afterward. Ingredient references inside a
+   * GENERATED body need no such check — ingredients are never hard-deleted in
+   * this app, only forked.
+   */
+  async history(limit = 10, offset = 0) {
+    const cappedLimit = Math.min(Math.max(limit, 1), 50);
+    const cappedOffset = Math.max(offset, 0);
+
+    const [total, rows, activeRecipes] = await Promise.all([
+      this.db.aiSuggestion.count(),
+      this.db.aiSuggestion.findMany({
+        orderBy: { createdOn: 'desc' },
+        take: cappedLimit,
+        skip: cappedOffset,
+      }),
+      this.suggestions.activeRecipes(),
+    ]);
+
+    const activeIds = new Set(activeRecipes.map((recipe) => recipe.id));
+
+    return {
+      total,
+      limit: cappedLimit,
+      offset: cappedOffset,
+      items: rows.map((row) => ({
+        id: row.id,
+        createdOn: row.createdOn,
+        ok: row.ok,
+        reason: row.reason ?? undefined,
+        ai: row.result ? reconcileStale(row.result as ResolvedAiSuggestions, activeIds) : null,
+        usage: {
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          cacheReadTokens: row.cacheReadTokens,
+        },
+      })),
+    };
+  }
+
+  /** Cumulative spend, summed on read rather than kept as a running counter. */
+  async usageSummary() {
+    const agg = await this.db.aiSuggestion.aggregate({
+      _sum: { inputTokens: true, outputTokens: true, cacheReadTokens: true },
+      _count: true,
+    });
+
+    return {
+      runCount: agg._count,
+      inputTokens: agg._sum.inputTokens ?? 0,
+      outputTokens: agg._sum.outputTokens ?? 0,
+      cacheReadTokens: agg._sum.cacheReadTokens ?? 0,
+    };
+  }
+
   /** Falls back to the deterministic answer, saying plainly why. */
   private degrade(matches: RecipeMatch[], reason: string) {
     return {
@@ -303,6 +422,32 @@ export class AiSuggestionsService {
       reason,
     };
   }
+}
+
+/**
+ * Read-time counterpart to `AiSuggestionsService.reconcile()`, for a stored
+ * run being served back later.
+ *
+ * `reconcile()` only ever runs once, at generation time, against the recipes
+ * that existed then. A recipe a stored SAVED_RECIPE or SUBSTITUTION pointed at
+ * can be archived afterward, so this nulls out any `recipeId` no longer in
+ * `activeIds` — unlike `reconcile()`, it leaves `kind` alone: the suggestion
+ * genuinely was that kind when generated, this only records that the link has
+ * since gone stale. The frontend already renders a plain title instead of a
+ * link whenever `recipeId` is falsy, so nothing else needs to change.
+ */
+export function reconcileStale(
+  result: ResolvedAiSuggestions,
+  activeIds: ReadonlySet<number>,
+): ResolvedAiSuggestions {
+  return {
+    ...result,
+    suggestions: result.suggestions.map((suggestion) =>
+      suggestion.recipeId !== null && !activeIds.has(suggestion.recipeId)
+        ? { ...suggestion, recipeId: null }
+        : suggestion,
+    ),
+  };
 }
 
 /**
