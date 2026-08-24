@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   ARCHIVE_HOUSEHOLD_ID,
+  RecipeType,
   SYSTEM_HOUSEHOLD_ID,
   TagKind,
   formatWithUnit,
@@ -104,6 +105,7 @@ export class RecipesService {
           servings: true,
           prepMinutes: true,
           cookMinutes: true,
+          recipeType: true,
           imagePath: true,
           archivedOn: true,
           updatedOn: true,
@@ -206,6 +208,7 @@ export class RecipesService {
     const description = dto.description?.trim() || null;
     const prepMinutes = dto.prepMinutes ?? null;
     const cookMinutes = dto.cookMinutes ?? null;
+    const recipeType = dto.recipeType ?? RecipeType.ANY;
     const sourceUrl = dto.sourceUrl ?? null;
     const sourceNote = dto.sourceNote?.trim() || null;
     const notes = dto.notes?.trim() || null;
@@ -218,6 +221,7 @@ export class RecipesService {
       servings: dto.servings,
       prepMinutes,
       cookMinutes,
+      recipeType,
       sourceUrl,
       sourceNote,
       notes,
@@ -233,6 +237,7 @@ export class RecipesService {
         servings: dto.servings,
         prepMinutes,
         cookMinutes,
+        recipeType,
         sourceUrl,
         sourceNote,
         notes,
@@ -269,6 +274,7 @@ export class RecipesService {
         servings: true,
         prepMinutes: true,
         cookMinutes: true,
+        recipeType: true,
         sourceUrl: true,
         sourceNote: true,
         notes: true,
@@ -318,6 +324,7 @@ export class RecipesService {
     }
 
     if (dto.servings !== undefined) data.servings = dto.servings;
+    if (dto.recipeType !== undefined) data.recipeType = dto.recipeType;
 
     // An empty string clears a nullable text column rather than storing "".
     //
@@ -371,6 +378,8 @@ export class RecipesService {
         'prepMinutes' in data ? (data.prepMinutes as number | null) : existing.prepMinutes,
       cookMinutes:
         'cookMinutes' in data ? (data.cookMinutes as number | null) : existing.cookMinutes,
+      recipeType:
+        'recipeType' in data ? (data.recipeType as RecipeType) : existing.recipeType,
       sourceUrl: 'sourceUrl' in data ? (data.sourceUrl as string | null) : existing.sourceUrl,
       sourceNote: 'sourceNote' in data ? (data.sourceNote as string | null) : existing.sourceNote,
       notes: 'notes' in data ? (data.notes as string | null) : existing.notes,
@@ -443,6 +452,7 @@ export class RecipesService {
         servings: true,
         prepMinutes: true,
         cookMinutes: true,
+        recipeType: true,
         sourceUrl: true,
         sourceNote: true,
         notes: true,
@@ -526,6 +536,7 @@ export class RecipesService {
         servings: source.servings,
         prepMinutes: source.prepMinutes,
         cookMinutes: source.cookMinutes,
+        recipeType: source.recipeType,
         sourceUrl: source.sourceUrl,
         sourceNote: source.sourceNote,
         notes: source.notes,
@@ -559,6 +570,7 @@ export class RecipesService {
             servings: source.servings,
             prepMinutes: source.prepMinutes,
             cookMinutes: source.cookMinutes,
+            recipeType: source.recipeType,
             sourceUrl: source.sourceUrl,
             sourceNote: source.sourceNote,
             notes: source.notes,
@@ -592,6 +604,7 @@ export class RecipesService {
         servings: true,
         prepMinutes: true,
         cookMinutes: true,
+        recipeType: true,
         sourceUrl: true,
         sourceNote: true,
         notes: true,
@@ -651,6 +664,7 @@ export class RecipesService {
         servings: source.servings,
         prepMinutes: source.prepMinutes,
         cookMinutes: source.cookMinutes,
+        recipeType: source.recipeType,
         sourceUrl: source.sourceUrl,
         sourceNote: source.sourceNote,
         notes: source.notes,

@@ -4,6 +4,15 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Recipe type selection (2026-08-24)
+
+A recipe can now be tagged breakfast, lunch, dinner, dessert, snack, or any,
+defaulting to any. The picker is on the recipe form and the paste-a-recipe
+review screen; the type shows as a chip on the recipe list and detail pages
+whenever it isn't "any." It survives publishing to the shared catalog, forking
+a copy, and household export/import, and is part of a recipe's content hash so
+changing it is recorded like any other edit.
+
 ### Fixed — Expired pantry stock no longer counts toward suggestions (2026-08-24)
 
 `pantryBalances()` — shared by the pantry match, AI suggestions and

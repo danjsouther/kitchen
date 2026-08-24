@@ -18,6 +18,7 @@ import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
 import { CookConfirmComponent } from "../plan/cook-confirm.component";
+import { recipeTypeLabel } from "../core/models";
 import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
 
 @Component({
@@ -82,6 +83,9 @@ import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
               ><mat-icon class="tiny">local_fire_department</mat-icon>
               {{ r.cookMinutes }} min cook</span
             >
+          }
+          @if (r.recipeType !== "ANY") {
+            <span class="tag">{{ recipeTypeLabel(r.recipeType) }}</span>
           }
           @for (tag of r.tags; track tag.id) {
             <span class="tag">{{ tag.name }}</span>
@@ -299,6 +303,9 @@ export class RecipeDetailComponent {
 
   /** Exposed for the template's shared-catalog checks. */
   readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
+
+  /** Exposed for the template. */
+  readonly recipeTypeLabel = recipeTypeLabel;
 
   /** Bound from the route by `withComponentInputBinding`. */
   readonly id = input.required<string>();

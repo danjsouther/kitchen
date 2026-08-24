@@ -17,6 +17,7 @@ import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { PagerComponent } from "../shared/pager.component";
+import { recipeTypeLabel } from "../core/models";
 import type { RecipeSummary } from "../core/models";
 
 const PAGE_LIMIT = 20;
@@ -111,6 +112,9 @@ const PAGE_LIMIT = 20;
                 @if (totalMinutes(recipe); as minutes) {
                   <span>{{ minutes }} min</span>
                 }
+                @if (recipe.recipeType !== "ANY") {
+                  <span>{{ recipeTypeLabel(recipe.recipeType) }}</span>
+                }
               </div>
               @if (recipe.tags.length) {
                 <mat-chip-set class="chip-row">
@@ -189,6 +193,9 @@ const PAGE_LIMIT = 20;
 export class RecipeListComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+
+  /** Exposed for the template. */
+  readonly recipeTypeLabel = recipeTypeLabel;
 
   /** Exposed for the template's shared-catalog badge. */
   readonly SYSTEM_HOUSEHOLD_ID = SYSTEM_HOUSEHOLD_ID;
