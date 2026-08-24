@@ -4,6 +4,8 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+## 0.6.0 (2026-08-24)
+
 ### Added — Steer AI cook suggestions with a free-text request (2026-08-24)
 
 The Ideas tab's "Suggest something" button now takes an optional 250-character
