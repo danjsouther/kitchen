@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { RecipeType } from '@kitchen/shared-types';
 
 export interface RecipeHashIngredientLine {
   sortOrder: number;
@@ -22,6 +23,7 @@ export interface RecipeHashInput {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  recipeType: RecipeType;
   sourceUrl: string | null;
   sourceNote: string | null;
   notes: string | null;
@@ -30,8 +32,9 @@ export interface RecipeHashInput {
 }
 
 /**
- * SHA-256 of a recipe's content — title, description, servings, timings,
- * source fields, notes, and the ingredient/step lists in their stored order.
+ * SHA-256 of a recipe's content — title, description, servings, timings, meal
+ * type, source fields, notes, and the ingredient/step lists in their stored
+ * order.
  * Deliberately excludes id, householdId, slug, and every timestamp: two rows
  * with the same content hash identically regardless of who owns them or when
  * they were written, which is what lets `publish` recognise "this content is
@@ -48,6 +51,7 @@ export function computeRecipeHash(input: RecipeHashInput): string {
     servings: input.servings,
     prepMinutes: input.prepMinutes,
     cookMinutes: input.cookMinutes,
+    recipeType: input.recipeType,
     sourceUrl: input.sourceUrl,
     sourceNote: input.sourceNote,
     notes: input.notes,

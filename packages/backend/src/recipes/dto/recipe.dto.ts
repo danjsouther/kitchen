@@ -17,7 +17,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { TagKind } from '@kitchen/shared-types';
+import { RecipeType, TagKind } from '@kitchen/shared-types';
 
 /** Bounds chosen to be generous for real recipes but to stop absurd payloads. */
 const MAX_INGREDIENTS = 200;
@@ -119,6 +119,11 @@ export class CreateRecipeDto {
   @Min(0)
   cookMinutes?: number;
 
+  /** Defaults to ANY server-side when omitted. */
+  @IsOptional()
+  @IsIn(Object.values(RecipeType))
+  recipeType?: RecipeType;
+
   @IsOptional()
   @IsUrl({}, { message: 'sourceUrl must be a valid URL.' })
   @MaxLength(2000)
@@ -189,6 +194,10 @@ export class UpdateRecipeDto {
   @IsInt()
   @Min(0)
   cookMinutes?: number;
+
+  @IsOptional()
+  @IsIn(Object.values(RecipeType))
+  recipeType?: RecipeType;
 
   /**
    * An empty string is allowed here and means "remove the link" — IsUrl would

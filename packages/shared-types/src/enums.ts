@@ -71,3 +71,18 @@ export const ItemSource = {
   MANUAL: 'MANUAL',
 } as const;
 export type ItemSource = (typeof ItemSource)[keyof typeof ItemSource];
+
+/**
+ * What meal a recipe suits. Distinct from `MealSlot` (a calendar time-of-day)
+ * on purpose: DESSERT is a course, not a slot you'd plan a whole day around,
+ * and ANY is a real "no restriction" value here rather than an absence.
+ */
+export const RecipeType = {
+  BREAKFAST: 'BREAKFAST',
+  LUNCH: 'LUNCH',
+  DINNER: 'DINNER',
+  DESSERT: 'DESSERT',
+  SNACK: 'SNACK',
+  ANY: 'ANY',
+} as const;
+export type RecipeType = (typeof RecipeType)[keyof typeof RecipeType];

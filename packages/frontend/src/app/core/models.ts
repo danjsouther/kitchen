@@ -199,6 +199,31 @@ export interface RecipeStep {
   text: string;
 }
 
+export type RecipeType =
+  | "BREAKFAST"
+  | "LUNCH"
+  | "DINNER"
+  | "DESSERT"
+  | "SNACK"
+  | "ANY";
+
+export const RECIPE_TYPE_OPTIONS: ReadonlyArray<{ value: RecipeType; label: string }> = [
+  { value: "ANY", label: "Any" },
+  { value: "BREAKFAST", label: "Breakfast" },
+  { value: "LUNCH", label: "Lunch" },
+  { value: "DINNER", label: "Dinner" },
+  { value: "DESSERT", label: "Dessert" },
+  { value: "SNACK", label: "Snack" },
+];
+
+const RECIPE_TYPE_LABELS: Record<RecipeType, string> = Object.fromEntries(
+  RECIPE_TYPE_OPTIONS.map((option) => [option.value, option.label]),
+) as Record<RecipeType, string>;
+
+export function recipeTypeLabel(type: RecipeType): string {
+  return RECIPE_TYPE_LABELS[type];
+}
+
 export interface RecipeSummary {
   id: number;
   householdId: number;
@@ -208,6 +233,7 @@ export interface RecipeSummary {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  recipeType: RecipeType;
   archivedOn: string | null;
   tags: Tag[];
   ingredientCount: number;
@@ -225,6 +251,7 @@ export interface Recipe {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  recipeType: RecipeType;
   archivedOn: string | null;
   notes: string | null;
   sourceUrl: string | null;
@@ -263,6 +290,8 @@ export interface RecipeWrite {
   servings: number;
   prepMinutes?: number;
   cookMinutes?: number;
+  /** Defaults to ANY server-side when omitted. */
+  recipeType?: RecipeType;
   sourceUrl?: string;
   sourceNote?: string;
   notes?: string;

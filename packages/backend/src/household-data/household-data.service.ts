@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { SYSTEM_HOUSEHOLD_ID, slugify } from '@kitchen/shared-types';
+import { SYSTEM_HOUSEHOLD_ID, slugify, type RecipeType } from '@kitchen/shared-types';
 
 import { requireHouseholdId } from '../common/household-context';
 import { TENANT_PRISMA, type TenantPrisma } from '../prisma/prisma.service';
@@ -214,6 +214,7 @@ export class HouseholdDataService {
       servings: r.servings,
       prepMinutes: r.prepMinutes,
       cookMinutes: r.cookMinutes,
+      recipeType: r.recipeType,
       sourceUrl: r.sourceUrl,
       sourceNote: r.sourceNote,
       imagePath: r.imagePath,
@@ -599,6 +600,7 @@ export class HouseholdDataService {
             servings: recipe.servings,
             prepMinutes: recipe.prepMinutes,
             cookMinutes: recipe.cookMinutes,
+            recipeType: recipe.recipeType,
             sourceUrl: recipe.sourceUrl,
             sourceNote: recipe.sourceNote,
             notes: recipe.notes,
@@ -613,6 +615,7 @@ export class HouseholdDataService {
               servings: recipe.servings,
               prepMinutes: recipe.prepMinutes,
               cookMinutes: recipe.cookMinutes,
+              recipeType: recipe.recipeType,
               sourceUrl: recipe.sourceUrl,
               sourceNote: recipe.sourceNote,
               imagePath: recipe.imagePath,
@@ -886,6 +889,7 @@ type ExportedRecipeInput = {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
+  recipeType: RecipeType;
   sourceUrl: string | null;
   sourceNote: string | null;
   imagePath: string | null;
