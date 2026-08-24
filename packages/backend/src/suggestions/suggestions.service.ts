@@ -152,6 +152,7 @@ export class SuggestionsService {
         title: true,
         slug: true,
         servings: true,
+        recipeType: true,
         ingredients: {
           orderBy: { sortOrder: 'asc' },
           select: {
@@ -172,6 +173,7 @@ export class SuggestionsService {
       title: recipe.title,
       slug: recipe.slug,
       servings: recipe.servings,
+      recipeType: recipe.recipeType,
       lines: recipe.ingredients.map((line) => ({
         lineId: line.id,
         ingredientId: line.ingredientId,

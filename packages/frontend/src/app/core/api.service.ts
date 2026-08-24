@@ -343,7 +343,7 @@ export class ApiService {
     return this.get<M.PantrySuggestions>('/suggestions/pantry', query);
   }
 
-  aiSuggestions(body: { servings?: number } = {}) {
+  aiSuggestions(body: { servings?: number; notes?: string } = {}) {
     return this.post<M.AiSuggestionResult>('/suggestions/ai', body);
   }
 

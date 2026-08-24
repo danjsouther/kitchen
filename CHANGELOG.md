@@ -4,6 +4,17 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Steer AI cook suggestions with a free-text request (2026-08-24)
+
+The Ideas tab's "Suggest something" button now takes an optional 250-character
+hint, e.g. "i want a salmon breakfast dish", sent to Claude alongside the usual
+pantry and match context. It outranks the model's default preference for using
+only what's already on hand: a generated suggestion can now name an ingredient
+the household doesn't have, calling it out honestly in its "why" rather than
+the request being quietly dropped. Each saved recipe's meal type (see below)
+now travels with its title and id, so a request naming a meal no longer gets a
+mismatched recipe dressed up to sound like it fits.
+
 ### Added — Recipe type selection (2026-08-24)
 
 A recipe can now be tagged breakfast, lunch, dinner, dessert, snack, or any,

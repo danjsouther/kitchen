@@ -8,7 +8,9 @@ import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
 import { MatChipsModule } from "@angular/material/chips";
+import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
+import { MatInputModule } from "@angular/material/input";
 import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatTabsModule } from "@angular/material/tabs";
 import { MatTooltipModule } from "@angular/material/tooltip";
@@ -36,6 +38,7 @@ interface AiSuggestionView {
 }
 
 const HISTORY_LIMIT = 10;
+const NOTES_MAX_LENGTH = 250;
 
 @Component({
   selector: "app-cook",
@@ -45,7 +48,9 @@ const HISTORY_LIMIT = 10;
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressBarModule,
     MatTabsModule,
     MatTooltipModule,
@@ -136,6 +141,19 @@ const HISTORY_LIMIT = 10;
               Claude for substitutions and expiry-driven ideas. It costs your
               household money, so it only runs when you ask.
             </p>
+
+            <mat-form-field appearance="outline" class="notes">
+              <mat-label>Anything in particular?</mat-label>
+              <textarea
+                matInput
+                rows="2"
+                [attr.maxlength]="notesMaxLength"
+                [value]="notes()"
+                (input)="notes.set($any($event.target).value)"
+                placeholder="e.g. I want a salmon dish for breakfast"
+              ></textarea>
+              <mat-hint align="end">{{ notes().length }}/{{ notesMaxLength }}</mat-hint>
+            </mat-form-field>
 
             <button mat-flat-button (click)="askAi()" [disabled]="aiLoading()">
               <mat-icon>auto_awesome</mat-icon>
@@ -273,6 +291,10 @@ const HISTORY_LIMIT = 10;
     .tab-body > button {
       align-self: flex-start;
     }
+    .notes {
+      width: 100%;
+      max-width: 32rem;
+    }
     .title {
       font-weight: 500;
       text-decoration: none;
@@ -355,6 +377,8 @@ export class CookComponent {
   readonly ai = signal<AiSuggestionView | null>(null);
   readonly aiLoading = signal(false);
   readonly aiError = signal("");
+  readonly notes = signal("");
+  readonly notesMaxLength = NOTES_MAX_LENGTH;
 
   readonly historyLimit = HISTORY_LIMIT;
   readonly history = signal<Paged<AiSuggestionRun>>({
@@ -414,7 +438,9 @@ export class CookComponent {
     this.aiLoading.set(true);
     this.aiError.set("");
 
-    this.api.aiSuggestions().subscribe({
+    const notes = this.notes().trim();
+
+    this.api.aiSuggestions(notes ? { notes } : {}).subscribe({
       next: (result) => {
         this.ai.set(result);
         this.selectedRunId.set(null);

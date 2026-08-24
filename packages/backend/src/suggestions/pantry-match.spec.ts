@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { ConversionFailure, UnitKind, type UnitDef } from '@kitchen/shared-types';
+import { ConversionFailure, RecipeType, UnitKind, type UnitDef } from '@kitchen/shared-types';
 
 import {
   matchRecipe,
@@ -36,6 +36,7 @@ function recipe(lines: Partial<MatchRecipe['lines'][number]>[], servings = 4): M
     title: 'Test Recipe',
     slug: 'test-recipe',
     servings,
+    recipeType: RecipeType.ANY,
     lines: lines.map((line, index) => ({
       lineId: index + 1,
       ingredientId: FLOUR,
