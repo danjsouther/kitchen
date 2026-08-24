@@ -34,3 +34,18 @@ export class AiSuggestionDto {
   @Max(1000)
   servings?: number;
 }
+
+export class AiSuggestionHistoryQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+}

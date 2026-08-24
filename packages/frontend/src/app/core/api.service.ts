@@ -347,6 +347,14 @@ export class ApiService {
     return this.post<M.AiSuggestionResult>('/suggestions/ai', body);
   }
 
+  aiSuggestionHistory(query: { limit?: number; offset?: number } = {}) {
+    return this.get<M.Paged<M.AiSuggestionRun>>('/suggestions/ai/history', query);
+  }
+
+  aiUsageSummary() {
+    return this.get<M.AiUsageSummary>('/suggestions/ai/usage');
+  }
+
   aiConfig() {
     return this.get<M.AiConfig>('/households/me/ai-config');
   }

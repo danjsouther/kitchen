@@ -397,6 +397,24 @@ export interface AiSuggestionResult {
   usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
 }
 
+/** One persisted AI suggestion run, as returned by GET /suggestions/ai/history. */
+export interface AiSuggestionRun {
+  id: number;
+  createdOn: string;
+  ok: boolean;
+  reason?: string;
+  ai: AiSuggestionResult['ai'];
+  usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+}
+
+/** Cumulative spend across every persisted AI suggestion run. */
+export interface AiUsageSummary {
+  runCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface Store {
   id: number;
   name: string;
