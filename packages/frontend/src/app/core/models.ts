@@ -386,6 +386,12 @@ export interface AiSuggestionResult {
       why: string;
       substitutions: Array<{ missing: string; useInstead: string; note: string }>;
       usesExpiring: string[];
+      /** A full recipe body, present only on a GENERATED suggestion. */
+      body: {
+        servings: number;
+        ingredients: ParsedLine[];
+        steps: Array<{ text: string }>;
+      } | null;
     }>;
   } | null;
   usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number };

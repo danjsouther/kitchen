@@ -4,6 +4,18 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — AI-generated suggestions come back as a full recipe, not just a name (2026-08-23)
+
+A GENERATED suggestion in the Ideas tab used to be a dish name and a sentence —
+nothing to actually cook from, and no way to save it. It now comes back with
+real ingredient lines and ordered steps, resolved against the household's
+catalog the same way a pasted recipe is. A "Save this recipe" action opens the
+paste-import review screen pre-filled with the suggestion, so anything the
+model got wrong — an unmatched ingredient, an unrecognised unit — is flagged
+for a look before it's saved, the same trust model already used for a pasted
+recipe. Suggestions that point at a saved recipe or a substitution are
+unaffected; they already point at something real.
+
 ### Added — Pick a default storage location (2026-08-23)
 
 Stocking the pantry always defaulted to whichever location sorted first, with

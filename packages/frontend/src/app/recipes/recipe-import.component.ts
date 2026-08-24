@@ -582,6 +582,14 @@ export class RecipeImportComponent {
       error: (error: unknown) =>
         this.notify.error(error, "Could not load the units."),
     });
+
+    // Arriving from a "Save this recipe" action on a GENERATED AI suggestion:
+    // skip the paste step and open straight on the review screen, exactly as
+    // if this had just come back from parse().
+    const state = this.router.getCurrentNavigation()?.extras.state as
+      | { aiDraft?: ParseResult }
+      | undefined;
+    if (state?.aiDraft) this.applyParsed(state.aiDraft);
   }
 
   /** The first message worth showing, once the user has actually been there. */
@@ -602,15 +610,7 @@ export class RecipeImportComponent {
     this.busy.set(true);
     this.api.parseRecipe(this.pasteModel().text).subscribe({
       next: (result) => {
-        this.parsed.set(result);
-        this.draftModel.set({
-          title: result.title ?? "",
-          servings: result.servings ?? 4,
-          ingredients: result.ingredients.map(lineFromParsed),
-          steps: result.steps.map((step) => ({ key: nextKey++, text: step.text })),
-        });
-        // Clears touched/dirty so the review does not open already in error.
-        this.draftForm().reset();
+        this.applyParsed(result);
         this.busy.set(false);
       },
       error: (error: unknown) => {
@@ -618,6 +618,19 @@ export class RecipeImportComponent {
         this.notify.error(error, "Could not read that.");
       },
     });
+  }
+
+  /** Opens the review screen on a parse result, from a paste or an AI draft. */
+  private applyParsed(result: ParseResult): void {
+    this.parsed.set(result);
+    this.draftModel.set({
+      title: result.title ?? "",
+      servings: result.servings ?? 4,
+      ingredients: result.ingredients.map(lineFromParsed),
+      steps: result.steps.map((step) => ({ key: nextKey++, text: step.text })),
+    });
+    // Clears touched/dirty so the review does not open already in error.
+    this.draftForm().reset();
   }
 
   startOver(): void {
