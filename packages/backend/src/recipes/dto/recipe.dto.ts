@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -119,10 +119,12 @@ export class CreateRecipeDto {
   @Min(0)
   cookMinutes?: number;
 
-  /** Defaults to ANY server-side when omitted. */
+  /** A recipe suits one or more meals. Defaults to [ANY] server-side when omitted. */
   @IsOptional()
-  @IsIn(Object.values(RecipeType))
-  recipeType?: RecipeType;
+  @IsArray()
+  @ArrayMaxSize(Object.values(RecipeType).length)
+  @IsIn(Object.values(RecipeType), { each: true })
+  recipeType?: RecipeType[];
 
   @IsOptional()
   @IsUrl({}, { message: 'sourceUrl must be a valid URL.' })
@@ -162,7 +164,8 @@ export class CreateRecipeDto {
 /**
  * Written out rather than derived with PartialType so the replace-vs-merge
  * semantics are visible at the point of use: scalar fields merge, but supplying
- * `ingredients`, `steps` or `tags` replaces that collection wholesale.
+ * `ingredients`, `steps`, `tags`, or `recipeType` replaces that collection
+ * wholesale.
  */
 export class UpdateRecipeDto {
   @IsOptional()
@@ -195,9 +198,12 @@ export class UpdateRecipeDto {
   @Min(0)
   cookMinutes?: number;
 
+  /** Replaces the whole selection, like `tags` — never merged with the existing one. */
   @IsOptional()
-  @IsIn(Object.values(RecipeType))
-  recipeType?: RecipeType;
+  @IsArray()
+  @ArrayMaxSize(Object.values(RecipeType).length)
+  @IsIn(Object.values(RecipeType), { each: true })
+  recipeType?: RecipeType[];
 
   /**
    * An empty string is allowed here and means "remove the link" — IsUrl would
@@ -247,11 +253,29 @@ export class RecipeQueryDto {
   @MaxLength(200)
   q?: string;
 
-  /** Tag slug, e.g. `weeknight`. */
+  /** Tag names or slugs, comma-separated. Matches recipes with ANY of them. */
   @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  tag?: string;
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? value.split(',').map((tag) => tag.trim()).filter(Boolean)
+      : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  tags?: string[];
+
+  /** Meal types, comma-separated. Matches recipes with ANY of them. */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? value.split(',').map((type) => type.trim()).filter(Boolean)
+      : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(Object.values(RecipeType).length)
+  @IsIn(Object.values(RecipeType), { each: true })
+  recipeTypes?: RecipeType[];
 
   /** Recipes using this catalog ingredient — "what can I make with leeks". */
   @IsOptional()

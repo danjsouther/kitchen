@@ -161,7 +161,8 @@ export class ApiService {
   recipes(
     query: {
       q?: string;
-      tag?: string;
+      tags?: string;
+      recipeTypes?: string;
       status?: string;
       scope?: 'mine' | 'shared' | 'all';
       limit?: number;
@@ -169,6 +170,11 @@ export class ApiService {
     } = {},
   ) {
     return this.get<M.Paged<M.RecipeSummary>>('/recipes', query);
+  }
+
+  /** The household's own tag catalog, for the browse page's tag filter. */
+  recipeTags() {
+    return this.get<M.Tag[]>('/recipes/tags');
   }
 
   recipe(id: number) {

@@ -4,6 +4,23 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Filter recipes by meal type, tags, and visibility (2026-08-25)
+
+The recipe browsing page now has three filters above the search box: meal
+type and tags are both multi-select, matching recipes with any of the
+selected values, and a visibility filter narrows to the shared catalog or
+the household's own recipes. A new `GET /recipes/tags` endpoint feeds the
+tag picker from the household's own tag catalog.
+
+### Changed — A recipe can suit more than one meal (2026-08-25)
+
+Recipe type is no longer a single choice: the meal picker on the recipe
+form and the paste-and-review screen is multi-select, so a recipe can be
+tagged both breakfast and brunch instead of picking one. Existing recipes
+keep their previous tag as a one-element list. On the list and detail
+pages, the meal-type badge now renders visually distinct from ordinary
+tags and appears once per selected meal, ahead of the tag chips.
+
 ### Added — Build a shopping list directly from recipes (2026-08-24)
 
 Recipes no longer have to go on the meal plan to reach a shopping list. The

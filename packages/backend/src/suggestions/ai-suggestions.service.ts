@@ -124,7 +124,7 @@ You will be given:
 - PANTRY: what they have, with amounts and units.
 - EXPIRING: items going off soon.
 - MATCHES: the result of an exact arithmetic check of each of their recipes against that pantry, already computed. Each match lists which ingredients are satisfied, which are short, and which could not be checked.
-- RECIPES: their saved recipe titles, ids, and each one's type — BREAKFAST, LUNCH, DINNER, DESSERT, SNACK, or ANY (a real "fits anywhere" value, not a placeholder). When the request names a meal, a recipe tagged for a different one is a poor fit even if every ingredient is on hand — don't stretch it with wording like "not traditional, but works for breakfast too"; offer it only if its type is ANY or already matches, and reach for a GENERATED dish for that meal otherwise.
+- RECIPES: their saved recipe titles, ids, and each one's meal types — one or more of BREAKFAST, LUNCH, DINNER, DESSERT, SNACK, or ANY (a real "fits anywhere" value, not a placeholder). When the request names a meal, a recipe whose types don't include it and don't include ANY is a poor fit even if every ingredient is on hand — don't stretch it with wording like "not traditional, but works for breakfast too"; offer it only if ANY or the requested meal is among its types, and reach for a GENERATED dish for that meal otherwise.
 - USER_REQUEST: optional free text the person typed to steer this run, e.g. "i want a salmon and egg dish for breakfast". It outranks the default preference for using up what they already have: if satisfying it means a GENERATED dish needs an ingredient not in PANTRY, write that dish anyway and say plainly in "why" what they'll need to pick up. That is not the same as the grounding rule below — you still may never claim PANTRY holds something it doesn't, or bend a MATCHES result to force a SAVED_RECIPE or SUBSTITUTION to fit; a GENERATED body naming an ingredient to buy is an honest shopping list, not a claim about the pantry. If genuinely nothing sensible satisfies the request, say so plainly in the summary rather than suggesting something unrelated.
 
 THE RULE THAT MATTERS MOST: the arithmetic in MATCHES is already correct and is not yours to redo. Never state a quantity, never claim an ingredient is present or absent contrary to MATCHES, and never recompute how much of something is needed. Your value is judgement the arithmetic cannot supply: which substitutions genuinely work, what to cook before it spoils, and what to make when nothing matches cleanly.
@@ -134,7 +134,7 @@ An ingredient listed as "unknown" in MATCHES is one the system could not measure
 That rule governs MATCHES and any SAVED_RECIPE or SUBSTITUTION suggestion, because those numbers are already computed and yours to report, not invent. A GENERATED suggestion is different: nothing about it exists yet, so when kind is GENERATED you must write a real, cookable body — every ingredient with its own quantity and unit, and ordered steps — good enough to actually cook from. Keep quantities plain decimals ("2", "0.5"), never a fraction character or a range. Leave body null for every other kind.
 
 How to choose:
-1. If USER_REQUEST is present, it comes first: look for a saved recipe or substitution that genuinely fits it, respecting each recipe's type; if none does, write a GENERATED dish that actually matches what was asked — lean on pantry and EXPIRING items where you can, but don't drop something the request specifically named just because it isn't on hand.
+1. If USER_REQUEST is present, it comes first: look for a saved recipe or substitution that genuinely fits it, respecting each recipe's meal types; if none does, write a GENERATED dish that actually matches what was asked — lean on pantry and EXPIRING items where you can, but don't drop something the request specifically named just because it isn't on hand.
 2. Without a USER_REQUEST, prefer recipes they can cook now, especially ones using EXPIRING items.
 3. Then recipes one or two ingredients short where a pantry item genuinely substitutes. Only suggest a substitution you would actually stand behind — say plainly how the dish will differ.
 4. Only if nothing above applies, invent a simple dish from what they have and mark it GENERATED.
@@ -193,13 +193,13 @@ export class AiSuggestionsService {
       })),
       EXPIRING: expiring,
       MATCHES: matches.slice(0, MAX_MATCHES_IN_PROMPT).map(summariseMatch),
-      // Titles, ids and meal type only. Sending full recipe bodies would
+      // Titles, ids and meal types only. Sending full recipe bodies would
       // multiply the request size for information the model does not need to
       // rank them.
       RECIPES: recipes.slice(0, MAX_RECIPES_IN_PROMPT).map((recipe) => ({
         id: recipe.id,
         title: recipe.title,
-        type: recipe.recipeType,
+        types: recipe.recipeType,
       })),
       ...(notes ? { USER_REQUEST: notes } : {}),
     };

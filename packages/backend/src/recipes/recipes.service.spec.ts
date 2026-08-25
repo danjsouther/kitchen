@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { ARCHIVE_HOUSEHOLD_ID, SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
+import { ARCHIVE_HOUSEHOLD_ID, RecipeType, SYSTEM_HOUSEHOLD_ID } from '@kitchen/shared-types';
 import Decimal from 'decimal.js';
 
 import { runWithHousehold } from '../common/household-context';
@@ -113,8 +113,29 @@ describe('buildRecipeWhere', () => {
   // The client may send a human-typed tag; matching is on the slug so "Quick
   // Dinner" and "quick-dinner" are the same filter.
   it('slugifies the tag filter', () => {
-    const where = buildRecipeWhere({ tag: 'Quick Dinner' }) as { AND: unknown[] };
-    expect(where.AND[1]).toEqual({ tags: { some: { tag: { slug: 'quick-dinner' } } } });
+    const where = buildRecipeWhere({ tags: ['Quick Dinner'] }) as { AND: unknown[] };
+    expect(where.AND[1]).toEqual({
+      tags: { some: { tag: { slug: { in: ['quick-dinner'] } } } },
+    });
+  });
+
+  it('matches any of several tags', () => {
+    const where = buildRecipeWhere({ tags: ['weeknight', 'vegan'] }) as { AND: unknown[] };
+    expect(where.AND[1]).toEqual({
+      tags: { some: { tag: { slug: { in: ['weeknight', 'vegan'] } } } },
+    });
+  });
+
+  it('filters by meal type', () => {
+    const where = buildRecipeWhere({ recipeTypes: ['DINNER'] }) as { AND: unknown[] };
+    expect(where.AND[1]).toEqual({ recipeType: { hasSome: ['DINNER'] } });
+  });
+
+  it('matches any of several meal types', () => {
+    const where = buildRecipeWhere({ recipeTypes: ['BREAKFAST', 'LUNCH'] }) as {
+      AND: unknown[];
+    };
+    expect(where.AND[1]).toEqual({ recipeType: { hasSome: ['BREAKFAST', 'LUNCH'] } });
   });
 
   it('filters by a catalog ingredient', () => {
@@ -123,7 +144,7 @@ describe('buildRecipeWhere', () => {
   });
 
   it('combines filters with AND rather than replacing them', () => {
-    const where = buildRecipeWhere({ q: 'stew', tag: 'winter' }) as { AND: unknown[] };
+    const where = buildRecipeWhere({ q: 'stew', tags: ['winter'] }) as { AND: unknown[] };
     expect(where.AND).toHaveLength(3);
   });
 
@@ -308,6 +329,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -326,6 +348,7 @@ describe('RecipesService.update', () => {
         householdId: HOUSEHOLD,
         title: 'Chili',
         slug: 'chili',
+        recipeType: [RecipeType.ANY],
         ingredients: [],
         steps: [],
       })
@@ -346,6 +369,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -366,6 +390,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -396,6 +421,7 @@ describe('RecipesService.update', () => {
       householdId: SYSTEM_HOUSEHOLD_ID,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -416,6 +442,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -444,6 +471,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -461,6 +489,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -482,6 +511,7 @@ describe('RecipesService.update', () => {
       householdId: HOUSEHOLD,
       title: 'Chili',
       slug: 'chili',
+      recipeType: [RecipeType.ANY],
       ingredients: [],
       steps: [],
     });
@@ -507,6 +537,7 @@ describe('RecipesService.update', () => {
       servings: 4,
       prepMinutes: null,
       cookMinutes: null,
+      recipeType: [RecipeType.ANY],
       sourceUrl: null,
       sourceNote: null,
       notes: null,

@@ -380,7 +380,7 @@ model Recipe {
   servings    Int
   prepMinutes Int?
   cookMinutes Int?
-  recipeType  RecipeType @default(ANY)
+  recipeType  RecipeType[] @default([ANY])
   /// Set by a future URL import; unused in v1 but recorded when known.
   sourceUrl   String?
   sourceNote  String?

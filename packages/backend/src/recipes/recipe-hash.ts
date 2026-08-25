@@ -23,7 +23,7 @@ export interface RecipeHashInput {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
-  recipeType: RecipeType;
+  recipeType: readonly RecipeType[];
   sourceUrl: string | null;
   sourceNote: string | null;
   notes: string | null;
@@ -51,7 +51,9 @@ export function computeRecipeHash(input: RecipeHashInput): string {
     servings: input.servings,
     prepMinutes: input.prepMinutes,
     cookMinutes: input.cookMinutes,
-    recipeType: input.recipeType,
+    // Sorted so the same set of meal types hashes the same regardless of the
+    // order they were selected or stored in.
+    recipeType: [...input.recipeType].sort(),
     sourceUrl: input.sourceUrl,
     sourceNote: input.sourceNote,
     notes: input.notes,

@@ -38,6 +38,12 @@ export class RecipesController {
     return this.recipes.findBySlug(slug);
   }
 
+  /** The household's own tag catalog, for the browse page's tag filter. */
+  @Get('tags')
+  listTags() {
+    return this.recipes.listTags();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.recipes.findOne(id);
