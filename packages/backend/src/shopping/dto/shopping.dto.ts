@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -13,6 +14,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { ListStatus } from '@kitchen/shared-types';
@@ -100,12 +102,40 @@ export class SetAislesDto {
   aisles!: AisleDto[];
 }
 
-export class GenerateListDto {
-  @IsISO8601(DATE_ONLY, { message: 'from must be a date (YYYY-MM-DD).' })
-  from!: string;
+export class RecipeServingsDto {
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  recipeId!: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  servings!: number;
+}
+
+export class GenerateListDto {
+  /**
+   * Demand comes from either a date range against the meal plan, or a
+   * chosen set of recipes — never both. `ShoppingService.generate` throws if
+   * neither or both are given; `class-validator` cannot express "exactly one
+   * of two groups" on its own.
+   */
+  @ValidateIf((dto: GenerateListDto) => !dto.recipes?.length)
+  @IsISO8601(DATE_ONLY, { message: 'from must be a date (YYYY-MM-DD).' })
+  from?: string;
+
+  @ValidateIf((dto: GenerateListDto) => !dto.recipes?.length)
   @IsISO8601(DATE_ONLY, { message: 'to must be a date (YYYY-MM-DD).' })
-  to!: string;
+  to?: string;
+
+  @ValidateIf((dto: GenerateListDto) => !dto.from && !dto.to)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => RecipeServingsDto)
+  recipes?: RecipeServingsDto[];
 
   @IsOptional()
   @Type(() => Number)
@@ -124,6 +154,15 @@ export class CreateListDto extends GenerateListDto {
   @IsString()
   @MaxLength(100)
   name?: string;
+}
+
+export class AddRecipesToListDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => RecipeServingsDto)
+  recipes!: RecipeServingsDto[];
 }
 
 export class AddListItemDto {

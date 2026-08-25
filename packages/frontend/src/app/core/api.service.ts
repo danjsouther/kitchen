@@ -407,16 +407,33 @@ export class ApiService {
     return this.delete<M.ShoppingList>(`/shopping-lists/${id}`);
   }
 
-  generateList(body: { from: string; to: string; storeId?: number }) {
+  generateList(body: {
+    from?: string;
+    to?: string;
+    recipes?: M.RecipeServings[];
+    storeId?: number;
+    includePars?: boolean;
+  }) {
     return this.post<M.Proposal>('/shopping-lists/generate', body);
   }
 
-  createList(body: { from: string; to: string; storeId?: number; name?: string }) {
+  createList(body: {
+    from?: string;
+    to?: string;
+    recipes?: M.RecipeServings[];
+    storeId?: number;
+    name?: string;
+    includePars?: boolean;
+  }) {
     return this.post<M.ShoppingList>('/shopping-lists', body);
   }
 
   addListItem(listId: number, body: unknown) {
     return this.post<M.ShoppingList>(`/shopping-lists/${listId}/items`, body);
+  }
+
+  addRecipesToList(listId: number, recipes: M.RecipeServings[]) {
+    return this.post<M.ShoppingList>(`/shopping-lists/${listId}/items/from-recipes`, { recipes });
   }
 
   updateListItem(listId: number, itemId: number, body: unknown) {

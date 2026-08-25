@@ -462,8 +462,15 @@ export interface ProposedItem {
   quantity: string;
   unit: Unit;
   source: 'RECIPE' | 'PAR' | 'MANUAL';
-  forMeals: Array<{ plannedMealId: number; recipeTitle: string; date: string }>;
+  forRecipes: Array<{
+    recipeId: number;
+    recipeTitle: string;
+    plannedMealId?: number;
+    date?: string;
+  }>;
   onHand: string | null;
+  /** What's already an open item on another ACTIVE shopping list. Null when it could not be counted. */
+  alreadyOnLists: string | null;
   unconvertible: boolean;
   reason?: string;
   estimatedPrice: string | null;
@@ -471,11 +478,17 @@ export interface ProposedItem {
 }
 
 export interface Proposal {
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   storeId: number | null;
-  mealCount: number;
+  mealCount?: number;
+  recipeCount?: number;
   items: ProposedItem[];
+}
+
+export interface RecipeServings {
+  recipeId: number;
+  servings: number;
 }
 
 export interface ShoppingListItem {

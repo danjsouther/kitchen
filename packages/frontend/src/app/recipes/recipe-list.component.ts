@@ -3,9 +3,10 @@ import {
   inject,
   signal,
 } from "@angular/core";
-import { RouterLink } from "@angular/router";
+import { Router, RouterLink } from "@angular/router";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
+import { MatCheckboxModule } from "@angular/material/checkbox";
 import { MatChipsModule } from "@angular/material/chips";
 import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
@@ -17,8 +18,9 @@ import { SYSTEM_HOUSEHOLD_ID } from "@kitchen/shared-types";
 import { ApiService } from "../core/api.service";
 import { NotifyService } from "../core/notify.service";
 import { PagerComponent } from "../shared/pager.component";
+import { RecipeShoppingPickerComponent } from "../shopping/recipe-shopping-picker.component";
 import { recipeTypeLabel } from "../core/models";
-import type { RecipeSummary } from "../core/models";
+import type { RecipeSummary, ShoppingList } from "../core/models";
 
 const PAGE_LIMIT = 20;
 
@@ -28,6 +30,7 @@ const PAGE_LIMIT = 20;
     RouterLink,
     MatButtonModule,
     MatCardModule,
+    MatCheckboxModule,
     MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
@@ -35,6 +38,7 @@ const PAGE_LIMIT = 20;
     MatProgressBarModule,
     MatTooltipModule,
     PagerComponent,
+    RecipeShoppingPickerComponent,
   ],
   template: `
     <div class="page">
@@ -86,7 +90,13 @@ const PAGE_LIMIT = 20;
           <mat-card class="card" [routerLink]="['/recipes', recipe.id]">
             <mat-card-content>
               <div class="card-head">
-                <h2>
+                <mat-checkbox
+                  [checked]="selected().has(recipe.id)"
+                  (change)="toggle(recipe, $event.checked)"
+                  (click)="$event.stopPropagation()"
+                  [attr.aria-label]="'Select ' + recipe.title"
+                />
+                <h2 class="grow">
                   {{ recipe.title }}
                   @if (recipe.householdId === SYSTEM_HOUSEHOLD_ID) {
                     <span class="pill shared" matTooltip="From the shared catalog">Shared</span>
@@ -136,6 +146,25 @@ const PAGE_LIMIT = 20;
         [offset]="offset()"
         (offsetChange)="onPageChange($event)"
       />
+
+      @if (picking(); as pickingRecipes) {
+        <app-recipe-shopping-picker
+          [recipes]="pickingRecipes"
+          (done)="onPicked($event)"
+          (cancelled)="picking.set(null)"
+        />
+      } @else if (selected().size > 0) {
+        <div class="selection-bar">
+          <span class="grow"
+            >{{ selected().size }} recipe{{ selected().size === 1 ? "" : "s" }} selected</span
+          >
+          <button mat-button (click)="clearSelection()">Clear</button>
+          <button mat-flat-button (click)="startPicking()">
+            <mat-icon>playlist_add</mat-icon>
+            Add to shopping list
+          </button>
+        </div>
+      }
     </div>
   `,
   styles: `
@@ -155,6 +184,21 @@ const PAGE_LIMIT = 20;
       justify-content: space-between;
       align-items: flex-start;
       gap: 0.5rem;
+    }
+    .card-head mat-checkbox {
+      margin-top: 0.1rem;
+    }
+    .selection-bar {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+      padding: 0.6rem 1rem;
+      background: var(--mat-sys-surface-container-highest);
+      border-radius: 8px;
+      box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
     }
     h2 {
       margin: 0 0 0.35rem;
@@ -193,6 +237,7 @@ const PAGE_LIMIT = 20;
 export class RecipeListComponent {
   private readonly api = inject(ApiService);
   private readonly notify = inject(NotifyService);
+  private readonly router = inject(Router);
 
   /** Exposed for the template. */
   readonly recipeTypeLabel = recipeTypeLabel;
@@ -210,8 +255,51 @@ export class RecipeListComponent {
   readonly offset = signal(0);
   private searchTimer?: ReturnType<typeof setTimeout>;
 
+  /**
+   * Recipes chosen for a shopping list, keyed by id so the picker has each
+   * one's title and servings without a second fetch.
+   */
+  readonly selected = signal<Map<number, RecipeSummary>>(new Map());
+
+  /**
+   * A snapshot of the selection taken when the picker opens, not a live view
+   * of `selected()`. Passing a fresh array into `[recipes]` on every change
+   * detection tick would count as a new input to the picker's `input()` and
+   * reset the servings the user is in the middle of adjusting.
+   */
+  readonly picking = signal<Array<{ id: number; title: string; servings: number }> | null>(null);
+
   constructor() {
     this.load();
+  }
+
+  toggle(recipe: RecipeSummary, checked: boolean): void {
+    this.selected.update((current) => {
+      const next = new Map(current);
+      if (checked) next.set(recipe.id, recipe);
+      else next.delete(recipe.id);
+      return next;
+    });
+  }
+
+  clearSelection(): void {
+    this.selected.set(new Map());
+  }
+
+  startPicking(): void {
+    this.picking.set(
+      [...this.selected().values()].map((recipe) => ({
+        id: recipe.id,
+        title: recipe.title,
+        servings: recipe.servings,
+      })),
+    );
+  }
+
+  onPicked(list: ShoppingList): void {
+    this.picking.set(null);
+    this.clearSelection();
+    void this.router.navigate(["/shopping", list.id]);
   }
 
   /** Debounced so typing does not fire a request per keystroke. */
