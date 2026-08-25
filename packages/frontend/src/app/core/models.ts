@@ -233,7 +233,7 @@ export interface RecipeSummary {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
-  recipeType: RecipeType;
+  recipeType: RecipeType[];
   archivedOn: string | null;
   tags: Tag[];
   ingredientCount: number;
@@ -251,7 +251,7 @@ export interface Recipe {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
-  recipeType: RecipeType;
+  recipeType: RecipeType[];
   archivedOn: string | null;
   notes: string | null;
   sourceUrl: string | null;
@@ -290,8 +290,8 @@ export interface RecipeWrite {
   servings: number;
   prepMinutes?: number;
   cookMinutes?: number;
-  /** Defaults to ANY server-side when omitted. */
-  recipeType?: RecipeType;
+  /** A recipe suits one or more meals. Defaults to [ANY] server-side when omitted. */
+  recipeType?: RecipeType[];
   sourceUrl?: string;
   sourceNote?: string;
   notes?: string;

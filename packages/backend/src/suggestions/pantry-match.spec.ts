@@ -36,7 +36,7 @@ function recipe(lines: Partial<MatchRecipe['lines'][number]>[], servings = 4): M
     title: 'Test Recipe',
     slug: 'test-recipe',
     servings,
-    recipeType: RecipeType.ANY,
+    recipeType: [RecipeType.ANY],
     lines: lines.map((line, index) => ({
       lineId: index + 1,
       ingredientId: FLOUR,

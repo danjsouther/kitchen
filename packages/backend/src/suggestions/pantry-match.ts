@@ -49,7 +49,7 @@ export interface MatchRecipe {
   title: string;
   slug: string;
   servings: number;
-  recipeType: RecipeType;
+  recipeType: RecipeType[];
   lines: MatchLine[];
 }
 

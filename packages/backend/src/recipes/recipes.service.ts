@@ -131,6 +131,14 @@ export class RecipesService {
     };
   }
 
+  /** Every tag visible to the caller's household, for building a tag filter. */
+  async listTags() {
+    return this.db.tag.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, slug: true, kind: true },
+    });
+  }
+
   async findOne(id: number) {
     const recipe = await this.db.recipe.findFirst({
       where: { id },
@@ -208,7 +216,7 @@ export class RecipesService {
     const description = dto.description?.trim() || null;
     const prepMinutes = dto.prepMinutes ?? null;
     const cookMinutes = dto.cookMinutes ?? null;
-    const recipeType = dto.recipeType ?? RecipeType.ANY;
+    const recipeType = normalizeRecipeTypes(dto.recipeType);
     const sourceUrl = dto.sourceUrl ?? null;
     const sourceNote = dto.sourceNote?.trim() || null;
     const notes = dto.notes?.trim() || null;
@@ -324,7 +332,7 @@ export class RecipesService {
     }
 
     if (dto.servings !== undefined) data.servings = dto.servings;
-    if (dto.recipeType !== undefined) data.recipeType = dto.recipeType;
+    if (dto.recipeType !== undefined) data.recipeType = normalizeRecipeTypes(dto.recipeType);
 
     // An empty string clears a nullable text column rather than storing "".
     //
@@ -379,7 +387,7 @@ export class RecipesService {
       cookMinutes:
         'cookMinutes' in data ? (data.cookMinutes as number | null) : existing.cookMinutes,
       recipeType:
-        'recipeType' in data ? (data.recipeType as RecipeType) : existing.recipeType,
+        'recipeType' in data ? (data.recipeType as RecipeType[]) : existing.recipeType,
       sourceUrl: 'sourceUrl' in data ? (data.sourceUrl as string | null) : existing.sourceUrl,
       sourceNote: 'sourceNote' in data ? (data.sourceNote as string | null) : existing.sourceNote,
       notes: 'notes' in data ? (data.notes as string | null) : existing.notes,
@@ -765,6 +773,18 @@ export class RecipesService {
   }
 }
 
+/**
+ * A recipe with no meal type at all is not a real choice, so an empty or
+ * omitted selection falls back to [ANY] rather than being stored as-is —
+ * the same default `create` has always used, now just array-shaped.
+ * Deduplicated so re-saving a form that round-tripped the same picks twice
+ * does not grow the array on every edit.
+ */
+function normalizeRecipeTypes(types: readonly RecipeType[] | undefined): RecipeType[] {
+  const unique = [...new Set(types ?? [])];
+  return unique.length > 0 ? unique : [RecipeType.ANY];
+}
+
 /** Builds the search filter. Exported so the combinations can be tested directly. */
 export function buildRecipeWhere(query: RecipeQueryDto): Record<string, unknown> {
   const filters: Record<string, unknown>[] = [];
@@ -786,8 +806,14 @@ export function buildRecipeWhere(query: RecipeQueryDto): Record<string, unknown>
     });
   }
 
-  if (query.tag) {
-    filters.push({ tags: { some: { tag: { slug: slugify(query.tag) } } } });
+  if (query.tags?.length) {
+    filters.push({
+      tags: { some: { tag: { slug: { in: query.tags.map((tag) => slugify(tag)) } } } },
+    });
+  }
+
+  if (query.recipeTypes?.length) {
+    filters.push({ recipeType: { hasSome: query.recipeTypes } });
   }
 
   if (query.ingredientId) {

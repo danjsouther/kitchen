@@ -19,7 +19,7 @@ import { NotifyService } from "../core/notify.service";
 import { amountWithUnit, withoutLeadingAmount } from "../shared/format";
 import { CookConfirmComponent } from "../plan/cook-confirm.component";
 import { recipeTypeLabel } from "../core/models";
-import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
+import type { Recipe, RecipeIngredient, RecipeType, CookReport } from "../core/models";
 
 @Component({
   selector: "app-recipe-detail",
@@ -84,8 +84,8 @@ import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
               {{ r.cookMinutes }} min cook</span
             >
           }
-          @if (r.recipeType !== "ANY") {
-            <span class="tag">{{ recipeTypeLabel(r.recipeType) }}</span>
+          @for (type of mealTypesToShow(r); track type) {
+            <span class="tag meal-tag">{{ recipeTypeLabel(type) }}</span>
           }
           @for (tag of r.tags; track tag.id) {
             <span class="tag">{{ tag.name }}</span>
@@ -249,6 +249,12 @@ import type { Recipe, RecipeIngredient, CookReport } from "../core/models";
       background: var(--mat-sys-secondary-container);
       color: var(--mat-sys-on-secondary-container);
     }
+    /* Distinguishes the meal-type badge from ordinary tag chips beside it. */
+    .meal-tag {
+      background: var(--mat-sys-tertiary-container);
+      color: var(--mat-sys-on-tertiary-container);
+      font-weight: 500;
+    }
     .tiny {
       font-size: 1rem;
       width: 1rem;
@@ -306,6 +312,11 @@ export class RecipeDetailComponent {
 
   /** Exposed for the template. */
   readonly recipeTypeLabel = recipeTypeLabel;
+
+  /** ANY means "no restriction" — nothing worth badging. */
+  mealTypesToShow(recipe: Recipe): RecipeType[] {
+    return recipe.recipeType.filter((type) => type !== "ANY");
+  }
 
   /** Bound from the route by `withComponentInputBinding`. */
   readonly id = input.required<string>();

@@ -217,7 +217,11 @@ function blankLine(groupLabel: string): DraftLine {
           </mat-form-field>
           <mat-form-field appearance="outline" class="meal">
             <mat-label>Meal</mat-label>
-            <mat-select [formField]="draftForm.recipeType">
+            <mat-select
+              multiple
+              [formField]="draftForm.recipeType"
+              (selectionChange)="onMealTypesChange($event.value)"
+            >
               @for (option of recipeTypeOptions; track option.value) {
                 <mat-option [value]="option.value">{{ option.label }}</mat-option>
               }
@@ -555,16 +559,22 @@ export class RecipeImportComponent {
    */
   readonly recipeTypeOptions = RECIPE_TYPE_OPTIONS;
 
+  /**
+   * The meal-type selection as of the last change, so `onMealTypesChange` can
+   * tell what was just added — see that method.
+   */
+  private previousMealTypes: RecipeType[] = ["ANY"];
+
   readonly draftModel = signal<{
     title: string;
     servings: number;
-    recipeType: RecipeType;
+    recipeType: RecipeType[];
     ingredients: DraftLine[];
     steps: DraftStep[];
   }>({
     title: "",
     servings: 4,
-    recipeType: "ANY",
+    recipeType: ["ANY"],
     ingredients: [],
     steps: [],
   });
@@ -623,6 +633,28 @@ export class RecipeImportComponent {
     return state.errors().find((e) => e.message)?.message;
   }
 
+  /**
+   * ANY means "fits any meal" — pairing it with a specific one is
+   * contradictory, not a finer-grained choice. `[formField]` already wrote
+   * the raw toggled selection into the model by the time this fires, so
+   * picking a specific type while ANY was still selected leaves both
+   * present; this corrects it to whichever one was just added. An empty
+   * selection (every option deselected) falls back to ANY rather than
+   * showing a blank picker.
+   */
+  onMealTypesChange(selected: RecipeType[]): void {
+    const added = selected.find((type) => !this.previousMealTypes.includes(type));
+    let next = selected;
+    if (added === "ANY") next = ["ANY"];
+    else if (added !== undefined && selected.includes("ANY")) {
+      next = selected.filter((type) => type !== "ANY");
+    }
+    if (next.length === 0) next = ["ANY"];
+
+    this.previousMealTypes = next;
+    if (next !== selected) this.draftModel.update((m) => ({ ...m, recipeType: next }));
+  }
+
   parse(): void {
     // Gate on validity here rather than in a <form>: this submits from a
     // button, so there is no submit event for FormRoot to intercept.
@@ -645,10 +677,11 @@ export class RecipeImportComponent {
   /** Opens the review screen on a parse result, from a paste or an AI draft. */
   private applyParsed(result: ParseResult): void {
     this.parsed.set(result);
+    this.previousMealTypes = ["ANY"];
     this.draftModel.set({
       title: result.title ?? "",
       servings: result.servings ?? 4,
-      recipeType: "ANY",
+      recipeType: ["ANY"],
       ingredients: result.ingredients.map(lineFromParsed),
       steps: result.steps.map((step) => ({ key: nextKey++, text: step.text })),
     });
@@ -658,10 +691,11 @@ export class RecipeImportComponent {
 
   startOver(): void {
     this.parsed.set(null);
+    this.previousMealTypes = ["ANY"];
     this.draftModel.set({
       title: "",
       servings: 4,
-      recipeType: "ANY",
+      recipeType: ["ANY"],
       ingredients: [],
       steps: [],
     });

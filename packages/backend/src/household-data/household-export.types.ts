@@ -102,7 +102,7 @@ export interface ExportedRecipe {
   servings: number;
   prepMinutes: number | null;
   cookMinutes: number | null;
-  recipeType: RecipeType;
+  recipeType: RecipeType[];
   sourceUrl: string | null;
   sourceNote: string | null;
   imagePath: string | null;

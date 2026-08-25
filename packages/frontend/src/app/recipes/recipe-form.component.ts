@@ -185,7 +185,11 @@ function blankIngredient(): IngredientRow {
 
               <mat-form-field appearance="outline">
                 <mat-label>Meal</mat-label>
-                <mat-select [formField]="recipeForm.recipeType">
+                <mat-select
+                  multiple
+                  [formField]="recipeForm.recipeType"
+                  (selectionChange)="onMealTypesChange($event.value)"
+                >
                   @for (option of recipeTypeOptions; track option.value) {
                     <mat-option [value]="option.value">{{ option.label }}</mat-option>
                   }
@@ -470,6 +474,12 @@ export class RecipeFormComponent {
   private ownerHouseholdId: number | null = null;
 
   /**
+   * The meal-type selection as of the last change, so `onMealTypesChange` can
+   * tell what was just added — see that method.
+   */
+  private previousMealTypes: RecipeType[] = ["ANY"];
+
+  /**
    * Ids are 0 rather than null where nothing is chosen, and every text field
    * starts as "" — Signal Forms requires non-null initial values throughout.
    */
@@ -479,7 +489,7 @@ export class RecipeFormComponent {
     servings: 4,
     prepMinutes: 0,
     cookMinutes: 0,
-    recipeType: "ANY" as RecipeType,
+    recipeType: ["ANY"] as RecipeType[],
     sourceNote: "",
     sourceUrl: "",
     notes: "",
@@ -578,6 +588,7 @@ export class RecipeFormComponent {
     this.api.recipe(id).subscribe({
       next: (recipe) => {
         this.ownerHouseholdId = recipe.householdId;
+        this.previousMealTypes = recipe.recipeType;
         this.model.set({
           title: recipe.title,
           description: recipe.description ?? "",
@@ -635,6 +646,28 @@ export class RecipeFormComponent {
   }): string | undefined {
     if (!state.touched()) return undefined;
     return state.errors().find((e) => e.message)?.message;
+  }
+
+  /**
+   * ANY means "fits any meal" — pairing it with a specific one is
+   * contradictory, not a finer-grained choice. `[formField]` already wrote
+   * the raw toggled selection into the model by the time this fires, so
+   * picking a specific type while ANY was still selected leaves both
+   * present; this corrects it to whichever one was just added. An empty
+   * selection (every option deselected) falls back to ANY rather than
+   * showing a blank picker.
+   */
+  onMealTypesChange(selected: RecipeType[]): void {
+    const added = selected.find((type) => !this.previousMealTypes.includes(type));
+    let next = selected;
+    if (added === "ANY") next = ["ANY"];
+    else if (added !== undefined && selected.includes("ANY")) {
+      next = selected.filter((type) => type !== "ANY");
+    }
+    if (next.length === 0) next = ["ANY"];
+
+    this.previousMealTypes = next;
+    if (next !== selected) this.model.update((m) => ({ ...m, recipeType: next }));
   }
 
   addIngredient(): void {
