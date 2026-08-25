@@ -98,7 +98,26 @@ describe('generateProposal — demand', () => {
       ],
     });
     expect(items[0].quantity).toBe('800');
-    expect(items[0].forMeals.map((m) => m.recipeTitle)).toEqual(['Bread', 'Pizza']);
+    expect(items[0].forRecipes.map((m) => m.recipeTitle)).toEqual(['Bread', 'Pizza']);
+  });
+
+  it('groups, sorts and prices a demand line with no planned-meal id or date', () => {
+    // The shape a recipe-picker-sourced line takes: no calendar date behind it.
+    const items = generate({
+      demand: [demand({ plannedMealId: undefined, date: undefined })],
+      ingredients: new Map([
+        [
+          FLOUR,
+          info({
+            lastPrice: { pricePerUnit: new Decimal('0.004'), unit: GRAM, brand: 'King Arthur' },
+          }),
+        ],
+      ]),
+    });
+    expect(items[0]).toMatchObject({ quantity: '500', estimatedPrice: '2' });
+    expect(items[0].forRecipes).toEqual([
+      { recipeId: 100, recipeTitle: 'Bread', plannedMealId: undefined, date: undefined },
+    ]);
   });
 
   it('folds mixed units into the ingredient default unit', () => {
@@ -142,6 +161,46 @@ describe('generateProposal — demand', () => {
       balances: new Map([[THYME, { total: new Decimal('3'), unit: CUP }]]),
     });
     expect(items[0]).toMatchObject({ quantity: '20', onHand: null });
+  });
+});
+
+describe('generateProposal — open list quantities', () => {
+  it('subtracts what is already open on another list, alongside the pantry', () => {
+    const items = generate({
+      demand: [demand()],
+      balances: new Map([[FLOUR, { total: new Decimal('100'), unit: GRAM }]]),
+      openListQuantities: new Map([[FLOUR, { total: new Decimal('300'), unit: GRAM }]]),
+    });
+    expect(items[0]).toMatchObject({ quantity: '100', onHand: '100', alreadyOnLists: '300' });
+  });
+
+  it('drops the item entirely when other open lists already cover it', () => {
+    const items = generate({
+      demand: [demand()],
+      openListQuantities: new Map([[FLOUR, { total: new Decimal('500'), unit: GRAM }]]),
+    });
+    expect(items).toEqual([]);
+  });
+
+  it('does not subtract an open-list quantity it cannot convert, and flags the gap', () => {
+    const items = generate({
+      demand: [demand({ ingredientId: THYME, ingredientName: 'thyme', quantity: '20' })],
+      openListQuantities: new Map([[THYME, { total: new Decimal('3'), unit: CUP }]]),
+    });
+    expect(items[0]).toMatchObject({ quantity: '20', onHand: '0', alreadyOnLists: null });
+  });
+
+  it('behaves exactly as before when no open-list map is supplied at all', () => {
+    const items = generate({ demand: [demand()] });
+    expect(items[0]).toMatchObject({ quantity: '500', onHand: '0', alreadyOnLists: '0' });
+  });
+
+  it('does not add a par for something already open on another list', () => {
+    const items = generate({
+      pars: [{ ingredientId: EGG, minQuantity: '12', unit: EACH }],
+      openListQuantities: new Map([[EGG, { total: new Decimal('12'), unit: EACH }]]),
+    });
+    expect(items).toEqual([]);
   });
 });
 

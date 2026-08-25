@@ -3,8 +3,13 @@
  *
  * This is the last of the four applications of the conversion engine, and the
  * one with the most steps: gather what the plan demands, fold repeated
- * ingredients together, subtract what is already in the pantry, add anything
- * below its par level, then sort the result into store-walk order.
+ * ingredients together, subtract what is already in the pantry and what is
+ * already an open item on another shopping list, add anything below its par
+ * level, then sort the result into store-walk order.
+ *
+ * Demand does not have to come from the meal plan — a caller can instead pass
+ * lines built directly from a chosen recipe and servings count. Either way
+ * this function does not know or care where a `DemandLine` came from.
  *
  * Nothing here writes. It produces a *proposal* the user reviews before anything
  * is persisted, because a generated list is a guess about a week that has not
@@ -20,12 +25,15 @@ import {
   convert,
 } from '@kitchen/shared-types';
 
-/** One scaled requirement from one planned meal. */
+/**
+ * One scaled requirement, either from one planned meal or from a recipe
+ * chosen directly (which has no calendar date or `PlannedMeal` behind it).
+ */
 export interface DemandLine {
-  plannedMealId: number;
+  plannedMealId?: number;
   recipeId: number;
   recipeTitle: string;
-  date: Date;
+  date?: Date;
   ingredientId: number;
   ingredientName: string;
   rawText: string;
@@ -62,10 +70,21 @@ export interface ProposedItem {
   quantity: string;
   unit: UnitDef;
   source: ItemSource;
-  /** The meals that asked for this, so the review screen can explain the line. */
-  forMeals: Array<{ plannedMealId: number; recipeTitle: string; date: Date }>;
+  /** The recipes that asked for this, so the review screen can explain the line. */
+  forRecipes: Array<{
+    recipeId: number;
+    recipeTitle: string;
+    plannedMealId?: number;
+    date?: Date;
+  }>;
   /** What the pantry already holds, in `unit`. Null when it could not be counted. */
   onHand: string | null;
+  /**
+   * What is already an open item on one of the household's other ACTIVE
+   * shopping lists, in `unit`. Null when it could not be counted. Absent the
+   * caller's `openListQuantities` map entirely, this is always `"0"`.
+   */
+  alreadyOnLists: string | null;
   /** True when this line could not be folded in with the rest of its ingredient. */
   unconvertible: boolean;
   /** Why, when `unconvertible`. */
@@ -80,6 +99,12 @@ export interface GenerationInput {
   demand: readonly DemandLine[];
   pars: readonly ParLine[];
   balances: ReadonlyMap<number, PantryOnHand>;
+  /**
+   * Quantity already open on the household's ACTIVE shopping lists, keyed by
+   * ingredient. When adding to an existing list, this deliberately includes
+   * that list's own items — see `ShoppingService.openListBalances`.
+   */
+  openListQuantities?: ReadonlyMap<number, PantryOnHand>;
   ingredients: ReadonlyMap<number, IngredientInfo>;
   /** Per-store aisle order, overriding the ingredient category's own. */
   aisleOrder?: ReadonlyMap<number, number>;
@@ -114,6 +139,7 @@ export function generateProposal(input: GenerationInput): ProposedItem[] {
         toItem(group, info, {
           source: ItemSource.RECIPE,
           onHand: null,
+          alreadyOnLists: null,
           quantity: group.quantity,
           unconvertible: true,
           reason: group.reason,
@@ -124,9 +150,15 @@ export function generateProposal(input: GenerationInput): ProposedItem[] {
     }
 
     const onHand = onHandIn(group.unit, input.balances.get(group.ingredientId), info);
-    const stillNeeded = onHand.known
-      ? group.quantity.minus(onHand.amount)
-      : group.quantity;
+    const onLists = onHandIn(
+      group.unit,
+      input.openListQuantities?.get(group.ingredientId),
+      info,
+    );
+    const covered = (onHand.known ? onHand.amount : new Decimal(0)).add(
+      onLists.known ? onLists.amount : new Decimal(0),
+    );
+    const stillNeeded = group.quantity.minus(covered);
 
     if (stillNeeded.lte(0)) continue;
 
@@ -134,6 +166,7 @@ export function generateProposal(input: GenerationInput): ProposedItem[] {
       toItem(group, info, {
         source: ItemSource.RECIPE,
         onHand: onHand.known ? onHand.amount.toString() : null,
+        alreadyOnLists: onLists.known ? onLists.amount.toString() : null,
         quantity: stillNeeded,
         unconvertible: false,
         aisleOrder: input.aisleOrder,
@@ -155,7 +188,11 @@ export function generateProposal(input: GenerationInput): ProposedItem[] {
       continue;
     }
 
-    const shortfall = new Decimal(par.minQuantity).minus(onHand.amount);
+    const onLists = onHandIn(par.unit, input.openListQuantities?.get(par.ingredientId), info);
+    if (!onLists.known && input.openListQuantities?.has(par.ingredientId)) continue;
+
+    const covered = onHand.amount.add(onLists.known ? onLists.amount : new Decimal(0));
+    const shortfall = new Decimal(par.minQuantity).minus(covered);
     if (shortfall.lte(0)) continue;
 
     items.push(
@@ -165,13 +202,14 @@ export function generateProposal(input: GenerationInput): ProposedItem[] {
           ingredientName: info?.name ?? `Ingredient ${par.ingredientId}`,
           quantity: shortfall,
           unit: par.unit,
-          forMeals: [],
+          forRecipes: [],
           unconvertible: false,
         },
         info,
         {
           source: ItemSource.PAR,
           onHand: onHand.amount.toString(),
+          alreadyOnLists: onLists.known ? onLists.amount.toString() : null,
           quantity: shortfall,
           unconvertible: false,
           aisleOrder: input.aisleOrder,
@@ -190,7 +228,7 @@ interface DemandGroup {
   ingredientName: string;
   quantity: Decimal;
   unit: UnitDef;
-  forMeals: ProposedItem['forMeals'];
+  forRecipes: ProposedItem['forRecipes'];
   unconvertible: boolean;
   reason?: ConversionFailure;
 }
@@ -219,8 +257,13 @@ function groupDemand(input: GenerationInput): DemandGroup[] {
         ingredientName: line.ingredientName,
         quantity: converted.ok ? converted.quantity : new Decimal(line.quantity),
         unit: converted.ok ? target : line.unit,
-        forMeals: [
-          { plannedMealId: line.plannedMealId, recipeTitle: line.recipeTitle, date: line.date },
+        forRecipes: [
+          {
+            recipeId: line.recipeId,
+            recipeTitle: line.recipeTitle,
+            plannedMealId: line.plannedMealId,
+            date: line.date,
+          },
         ],
         unconvertible: false,
       });
@@ -230,9 +273,10 @@ function groupDemand(input: GenerationInput): DemandGroup[] {
     const converted = convert(line.quantity, line.unit, existing.unit, info?.physicals);
     if (converted.ok) {
       existing.quantity = existing.quantity.add(converted.quantity);
-      existing.forMeals.push({
-        plannedMealId: line.plannedMealId,
+      existing.forRecipes.push({
+        recipeId: line.recipeId,
         recipeTitle: line.recipeTitle,
+        plannedMealId: line.plannedMealId,
         date: line.date,
       });
     } else {
@@ -243,8 +287,13 @@ function groupDemand(input: GenerationInput): DemandGroup[] {
         ingredientName: line.ingredientName,
         quantity: new Decimal(line.quantity),
         unit: line.unit,
-        forMeals: [
-          { plannedMealId: line.plannedMealId, recipeTitle: line.recipeTitle, date: line.date },
+        forRecipes: [
+          {
+            recipeId: line.recipeId,
+            recipeTitle: line.recipeTitle,
+            plannedMealId: line.plannedMealId,
+            date: line.date,
+          },
         ],
         unconvertible: true,
         reason: converted.reason,
@@ -275,6 +324,7 @@ function toItem(
   options: {
     source: ItemSource;
     onHand: string | null;
+    alreadyOnLists: string | null;
     quantity: Decimal;
     unconvertible: boolean;
     reason?: ConversionFailure;
@@ -298,8 +348,9 @@ function toItem(
     quantity: options.quantity.toString(),
     unit: group.unit,
     source: options.source,
-    forMeals: group.forMeals,
+    forRecipes: group.forRecipes,
     onHand: options.onHand,
+    alreadyOnLists: options.alreadyOnLists,
     unconvertible: options.unconvertible,
     ...(options.reason ? { reason: options.reason } : {}),
     estimatedPrice: price,

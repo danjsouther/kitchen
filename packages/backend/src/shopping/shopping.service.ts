@@ -17,6 +17,7 @@ import {
 
 import { toUnitDef } from '../catalog/units.service';
 import { parseDate } from '../planner/planner.service';
+import { balanceFor, type BalanceLot } from '../pantry/pantry-balance';
 import { ProductsService } from '../products/products.service';
 import { SuggestionsService } from '../suggestions/suggestions.service';
 import { paged, resolveLimit } from '../common/pagination';
@@ -31,9 +32,11 @@ import {
 } from './shopping-generation';
 import type {
   AddListItemDto,
+  AddRecipesToListDto,
   CreateListDto,
   GenerateListDto,
   ReceiveDto,
+  RecipeServingsDto,
   ShoppingListQueryDto,
   UpdateListItemDto,
 } from './dto/shopping.dto';
@@ -112,25 +115,145 @@ export class ShoppingService {
   /**
    * Builds a proposal without saving anything.
    *
-   * A generated list is a guess about a week that has not happened yet, so it is
-   * shown for review first. `create` runs the same generation and persists the
-   * result.
+   * A generated list is a guess about a week that has not happened yet (or
+   * about recipes not yet cooked), so it is shown for review first. `create`
+   * runs the same generation and persists the result.
+   *
+   * Demand comes from either a date range against the meal plan or a chosen
+   * set of recipes — the DTO enforces that at most one is meaningfully
+   * present, but "neither" still needs a request-time check.
    */
   async generate(dto: GenerateListDto): Promise<{
-    from: string;
-    to: string;
+    from: string | null;
+    to: string | null;
     storeId: number | null;
     items: ProposedItem[];
-    mealCount: number;
+    mealCount?: number;
+    recipeCount?: number;
   }> {
-    const from = parseDate(dto.from, 'from');
-    const to = parseDate(dto.to, 'to');
-    if (to < from) throw new BadRequestException('`to` is before `from`.');
-
     if (dto.storeId) await this.stores.findOne(dto.storeId);
 
+    if (dto.recipes?.length) {
+      if (dto.from || dto.to) {
+        throw new BadRequestException('Provide either a date range or recipes, not both.');
+      }
+      const { demand, recipeCount } = await this.demandFromRecipes(dto.recipes);
+      const items = await this.finishGenerate(demand, dto);
+      return { from: null, to: null, storeId: dto.storeId ?? null, recipeCount, items };
+    }
+
+    if (!dto.from || !dto.to) {
+      throw new BadRequestException('Provide a date range or a list of recipes.');
+    }
+    const { demand, mealCount } = await this.demandFromPlan(dto.from, dto.to);
+    const items = await this.finishGenerate(demand, dto);
+    return { from: dto.from, to: dto.to, storeId: dto.storeId ?? null, mealCount, items };
+  }
+
+  /** Generates and saves, so the review screen can accept a proposal in one call. */
+  async create(dto: CreateListDto) {
+    const proposal = await this.generate(dto);
+
+    const name =
+      dto.name?.trim() ||
+      (dto.recipes?.length
+        ? `Shopping — ${proposal.recipeCount} recipe${proposal.recipeCount === 1 ? '' : 's'}`
+        : `Shopping ${proposal.from} to ${proposal.to}`);
+
+    const list = await this.db.shoppingList.create({
+      data: {
+        name,
+        storeId: dto.storeId ?? null,
+        items: {
+          create: proposal.items.map((item) => ({
+            ingredientId: item.ingredientId,
+            quantity: item.quantity,
+            unitId: item.unit.id,
+            source: item.source,
+            sourcePlannedMealId: item.forRecipes[0]?.plannedMealId ?? null,
+            brand: item.brand,
+            estimatedPrice: item.estimatedPrice,
+            unconvertible: item.unconvertible,
+          })),
+        },
+      } as never,
+      include: LIST_INCLUDE,
+    });
+
+    return withTotals(list);
+  }
+
+  /** Adds a chosen set of recipes' ingredients onto an already-open list. */
+  async addRecipesToList(listId: number, dto: AddRecipesToListDto) {
+    const list = await this.requireOpenList(listId);
+    const { demand } = await this.demandFromRecipes(dto.recipes);
+
+    // No pars here — adding recipes to an existing list is recipes-only, not
+    // also a top-up of everything below par.
+    const proposed = await this.finishGenerate(demand, {
+      storeId: list.storeId ?? undefined,
+      includePars: false,
+    });
+
+    const existing = await this.db.shoppingListItem.findMany({
+      where: { listId },
+      select: { id: true, ingredientId: true, unitId: true, quantity: true },
+    });
+    const existingByKey = new Map(
+      existing
+        .filter((item) => item.ingredientId !== null && item.unitId !== null)
+        .map((item) => [`${item.ingredientId}:${item.unitId}`, item]),
+    );
+
+    await this.db.$transaction(async (tx) => {
+      for (const item of proposed) {
+        const key = `${item.ingredientId}:${item.unit.id}`;
+        const match = existingByKey.get(key);
+
+        if (match) {
+          await tx.shoppingListItem.update({
+            where: { id: match.id },
+            data: {
+              quantity: new Decimal(match.quantity?.toString() ?? '0')
+                .add(item.quantity)
+                .toString(),
+            } as never,
+          });
+        } else {
+          await tx.shoppingListItem.create({
+            data: {
+              listId,
+              ingredientId: item.ingredientId,
+              quantity: item.quantity,
+              unitId: item.unit.id,
+              source: item.source,
+              brand: item.brand,
+              estimatedPrice: item.estimatedPrice,
+              unconvertible: item.unconvertible,
+            } as never,
+          });
+        }
+      }
+    });
+
+    return this.findOne(listId);
+  }
+
+  /** Today's date range against `PlannedMeal`, unchanged from before this method was split out. */
+  private async demandFromPlan(
+    from: string,
+    to: string,
+  ): Promise<{ demand: DemandLine[]; mealCount: number }> {
+    const fromDate = parseDate(from, 'from');
+    const toDate = parseDate(to, 'to');
+    if (toDate < fromDate) throw new BadRequestException('`to` is before `from`.');
+
     const meals = await this.db.plannedMeal.findMany({
-      where: { date: { gte: from, lte: to }, status: PlanStatus.PLANNED, recipeId: { not: null } },
+      where: {
+        date: { gte: fromDate, lte: toDate },
+        status: PlanStatus.PLANNED,
+        recipeId: { not: null },
+      },
       include: {
         recipe: {
           select: {
@@ -176,10 +299,80 @@ export class ShoppingService {
       }
     }
 
+    return { demand, mealCount: meals.length };
+  }
+
+  /**
+   * Demand built directly from chosen recipes, not the meal plan — the entry
+   * point for "add these recipes to a shopping list" without putting them on
+   * the calendar first.
+   */
+  private async demandFromRecipes(
+    selections: readonly RecipeServingsDto[],
+  ): Promise<{ demand: DemandLine[]; recipeCount: number }> {
+    const recipeIds = [...new Set(selections.map((s) => s.recipeId))];
+    const recipes = await this.db.recipe.findMany({
+      where: { id: { in: recipeIds } },
+      select: {
+        id: true,
+        title: true,
+        servings: true,
+        ingredients: {
+          orderBy: { sortOrder: 'asc' },
+          include: { unit: true, ingredient: { select: { id: true, name: true } } },
+        },
+      },
+    });
+
+    const byId = new Map(recipes.map((recipe) => [recipe.id, recipe]));
+    const missing = recipeIds.filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      throw new NotFoundException(
+        `No recipe with id ${missing.length === 1 ? missing[0] : missing.join(', ')}.`,
+      );
+    }
+
+    const demand: DemandLine[] = [];
+    for (const selection of selections) {
+      const recipe = byId.get(selection.recipeId)!;
+
+      for (const line of recipe.ingredients) {
+        // Same skip rule as the meal-plan path: optional lines are not
+        // assumed used, and a line with no ingredient, quantity or unit
+        // cannot be shopped for.
+        if (line.optional || !line.ingredient || line.quantity === null || !line.unit) {
+          continue;
+        }
+
+        demand.push({
+          recipeId: recipe.id,
+          recipeTitle: recipe.title,
+          ingredientId: line.ingredient.id,
+          ingredientName: line.ingredient.name,
+          rawText: line.rawText,
+          quantity: scaleForServings(
+            line.quantity.toString(),
+            recipe.servings,
+            selection.servings,
+          ),
+          unit: toUnitDef(line.unit),
+        });
+      }
+    }
+
+    return { demand, recipeCount: recipes.length };
+  }
+
+  /** The shared tail of generation, once demand has been gathered by either path. */
+  private async finishGenerate(
+    demand: DemandLine[],
+    dto: { storeId?: number; includePars?: boolean },
+  ): Promise<ProposedItem[]> {
     const pars = dto.includePars === false ? [] : await this.parLines();
 
-    const [balances, ingredients, aisleOrder] = await Promise.all([
+    const [balances, openListQuantities, ingredients, aisleOrder] = await Promise.all([
       this.balancesForGenerator(),
+      this.openListBalances(),
       this.ingredientInfo(
         [...new Set([...demand.map((d) => d.ingredientId), ...pars.map((p) => p.ingredientId)])],
         dto.storeId ?? null,
@@ -187,40 +380,7 @@ export class ShoppingService {
       this.stores.aisleOrder(dto.storeId),
     ]);
 
-    return {
-      from: dto.from,
-      to: dto.to,
-      storeId: dto.storeId ?? null,
-      mealCount: meals.length,
-      items: generateProposal({ demand, pars, balances, ingredients, aisleOrder }),
-    };
-  }
-
-  /** Generates and saves, so the review screen can accept a proposal in one call. */
-  async create(dto: CreateListDto) {
-    const proposal = await this.generate(dto);
-
-    const list = await this.db.shoppingList.create({
-      data: {
-        name: dto.name?.trim() || `Shopping ${dto.from} to ${dto.to}`,
-        storeId: dto.storeId ?? null,
-        items: {
-          create: proposal.items.map((item) => ({
-            ingredientId: item.ingredientId,
-            quantity: item.quantity,
-            unitId: item.unit.id,
-            source: item.source,
-            sourcePlannedMealId: item.forMeals[0]?.plannedMealId ?? null,
-            brand: item.brand,
-            estimatedPrice: item.estimatedPrice,
-            unconvertible: item.unconvertible,
-          })),
-        },
-      } as never,
-      include: LIST_INCLUDE,
-    });
-
-    return withTotals(list);
+    return generateProposal({ demand, pars, balances, openListQuantities, ingredients, aisleOrder });
   }
 
   async addItem(listId: number, dto: AddListItemDto) {
@@ -734,6 +894,104 @@ export class ShoppingService {
         { total: balance.total, unit: balance.unit },
       ]),
     );
+  }
+
+  /**
+   * What's already an open item on the household's ACTIVE shopping lists,
+   * folded per ingredient the same way pantry lots are.
+   *
+   * `ShoppingListItem` has no `householdId` of its own — it is reached only
+   * through its tenant-scoped parent `ShoppingList`, so this goes through
+   * `shoppingList.findMany` and flattens in memory rather than querying items
+   * directly. Every item on an ACTIVE list is guaranteed unreceived: `receive`
+   * unconditionally flips the whole list to COMPLETED the moment anything on
+   * it is put away, so there's no `checkedOn` filter to apply here — a
+   * checked-but-not-yet-received line is still "spoken for."
+   *
+   * Deliberately includes the destination list's own items when called while
+   * adding to an existing list — see `addRecipesToList`, which relies on that
+   * to avoid double-counting what's already on that same list.
+   */
+  private async openListBalances(): Promise<Map<number, PantryOnHand>> {
+    const lists = await this.db.shoppingList.findMany({
+      where: { status: ListStatus.ACTIVE },
+      select: {
+        items: {
+          where: { ingredientId: { not: null }, quantity: { not: null }, unitId: { not: null } },
+          select: {
+            id: true,
+            ingredientId: true,
+            quantity: true,
+            unit: true,
+            ingredient: { select: { gramsPerMl: true, gramsPerPiece: true, defaultUnitId: true } },
+          },
+        },
+      },
+    });
+
+    // The `where` above already excludes these at the database level; this
+    // narrows the (still-nullable) generated types to match, the same way
+    // `receive()` narrows a checked item before treating it as stockable.
+    const rows = lists
+      .flatMap((list) => list.items)
+      .filter(
+        (
+          item,
+        ): item is typeof item & {
+          ingredientId: number;
+          quantity: NonNullable<(typeof item)['quantity']>;
+          unit: NonNullable<(typeof item)['unit']>;
+          ingredient: NonNullable<(typeof item)['ingredient']>;
+        } =>
+          item.ingredientId !== null &&
+          item.quantity !== null &&
+          item.unit !== null &&
+          item.ingredient !== null,
+      );
+    if (rows.length === 0) return new Map();
+
+    const grouped = new Map<number, typeof rows>();
+    for (const row of rows) {
+      const list = grouped.get(row.ingredientId);
+      if (list) list.push(row);
+      else grouped.set(row.ingredientId, [row]);
+    }
+
+    const defaultUnitIds = [...grouped.values()].map((group) => group[0].ingredient.defaultUnitId);
+    const defaultUnits = await this.resolveUnits(defaultUnitIds);
+
+    const balances = new Map<number, PantryOnHand>();
+    for (const [ingredientId, group] of grouped) {
+      const ingredient = group[0].ingredient;
+      const physicals = {
+        gramsPerMl: ingredient.gramsPerMl?.toString() ?? null,
+        gramsPerPiece: ingredient.gramsPerPiece?.toString() ?? null,
+      };
+      const lots: BalanceLot[] = group.map((row) => ({
+        id: row.id,
+        quantity: row.quantity.toString(),
+        unit: toUnitDef(row.unit),
+      }));
+      const preferred = ingredient.defaultUnitId
+        ? (defaultUnits.get(ingredient.defaultUnitId) ?? null)
+        : null;
+
+      const balance = balanceFor(lots, physicals, preferred);
+      if (balance.total === null || balance.unit === null) continue;
+      if (balance.total.lte(0)) continue;
+
+      balances.set(ingredientId, { total: new Decimal(balance.total), unit: balance.unit });
+    }
+
+    return balances;
+  }
+
+  private async resolveUnits(ids: ReadonlyArray<number | null>): Promise<Map<number, UnitDef>> {
+    const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
+    if (wanted.length === 0) return new Map();
+
+    const units = await this.db.unit.findMany({ where: { id: { in: wanted } } });
+    return new Map(units.map((unit) => [unit.id, toUnitDef(unit)]));
   }
 
   private async parLines() {

@@ -4,6 +4,20 @@ Notable changes, newest first. Dates are the day the work landed.
 
 ## Unreleased
 
+### Added — Build a shopping list directly from recipes (2026-08-24)
+
+Recipes no longer have to go on the meal plan to reach a shopping list. The
+recipe browsing page now offers a checkbox per card and a servings stepper per
+selected recipe; the resulting demand can be previewed and either saved as a
+new list or merged onto an already-open one. Merging increments an existing
+line rather than duplicating it when the ingredient and unit already match.
+
+The proposal engine shared by both entry points (`generateProposal`) now also
+subtracts what's already an open item on the household's other active lists,
+the same "safe over-buy on an uncountable balance" way it already treats
+pantry stock — so splitting a week's shopping across two store-specific lists
+no longer double-counts an ingredient that lands on both.
+
 ## 0.6.0 (2026-08-24)
 
 ### Added — Steer AI cook suggestions with a free-text request (2026-08-24)

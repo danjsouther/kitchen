@@ -15,6 +15,7 @@ import {
 import { CurrentUser } from '../auth/decorators';
 import {
   AddListItemDto,
+  AddRecipesToListDto,
   CreateListDto,
   CreateStoreDto,
   GenerateListDto,
@@ -95,6 +96,12 @@ export class ShoppingController {
   @Post(':id/items')
   addItem(@Param('id', ParseIntPipe) id: number, @Body() dto: AddListItemDto) {
     return this.shopping.addItem(id, dto);
+  }
+
+  /** Adds a chosen set of recipes' ingredients onto an already-open list. */
+  @Post(':id/items/from-recipes')
+  addRecipesToList(@Param('id', ParseIntPipe) id: number, @Body() dto: AddRecipesToListDto) {
+    return this.shopping.addRecipesToList(id, dto);
   }
 
   /** Ticking off at the shelf, and recording what it actually cost. */
